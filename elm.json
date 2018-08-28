@@ -1,0 +1,16 @@
+{
+    "type": "package",
+    "name": "billstclair/elm-websocket-client",
+    "summary": "WebSockets for Elm 0.19, using ports.",
+    "license": "MIT",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "WebSocket",
+        "WebSocket.LowLevel"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0"
+    },
+    "test-dependencies": {}
+}
