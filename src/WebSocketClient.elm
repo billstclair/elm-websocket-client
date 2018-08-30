@@ -125,7 +125,7 @@ type alias Config msg =
     { wrapper : WebSocketCmd msg -> msg
     , sendPort : Value -> Cmd msg
     , receivePort : (Value -> msg) -> Sub msg
-    , simulator : Maybe (Value -> Value)
+    , simulator : Maybe (String -> String)
     }
 
 
@@ -143,7 +143,7 @@ makeConfig wrapper sendPort receivePort =
     Config wrapper sendPort receivePort Nothing
 
 
-makeSimulatorConfig : (WebSocketCmd msg -> msg) -> (Value -> Value) -> Config msg
+makeSimulatorConfig : (WebSocketCmd msg -> msg) -> (String -> String) -> Config msg
 makeSimulatorConfig wrapper simulator =
     Config wrapper (\_ -> Cmd.none) (\_ -> Sub.none) (Just simulator)
 
