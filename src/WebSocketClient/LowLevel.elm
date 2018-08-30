@@ -1,4 +1,4 @@
-module WebSocket.LowLevel exposing
+module WebSocketClient.LowLevel exposing
     ( WebSocket
     , open, Settings, send, close, closeWith, bytesQueued
     , BadOpen(..), BadClose(..), BadSend(..)

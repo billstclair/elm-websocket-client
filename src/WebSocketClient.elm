@@ -1,4 +1,7 @@
-module WebSocket exposing (listen, keepAlive, send)
+module WebSocketClient exposing
+    ( Config, State, WebSocketCmd
+    , listen, keepAlive, send
+    )
 
 {-| Web sockets make it cheaper to talk to your servers.
 
@@ -18,21 +21,26 @@ many unique connections to the same endpoint, you need a different library.
 
 # Web Sockets
 
+@docs Config, State, WebSocketCmd
+
 @docs listen, keepAlive, send
 
 -}
 
 import Dict
+import Json.Encode exposing (Value)
 import Process
 import Task exposing (Task)
-import WebSocket.LowLevel as WS
+import WebSocketClient.LowLevel as WS
 
 
 
 -- COMMANDS
 
 
-type MyCmd msg
+{-| A command to pass, with a `State` to `processCmd`.
+-}
+type WebSocketCmd msg
     = Send String String
 
 
@@ -50,7 +58,7 @@ send url message =
     Cmd.none
 
 
-cmdMap : (a -> b) -> MyCmd a -> MyCmd b
+cmdMap : (a -> b) -> WebSocketCmd a -> WebSocketCmd b
 cmdMap _ (Send url msg) =
     Send url msg
 
@@ -113,11 +121,53 @@ subMap func sub =
 -- MANAGER
 
 
-type alias State msg =
-    { sockets : SocketsDict
+type alias Config msg =
+    { wrapper : WebSocketCmd msg -> msg
+    , sendPort : Value -> Cmd msg
+    , receivePort : (Value -> msg) -> Sub msg
+    , simulator : Maybe (Value -> Value)
+    }
+
+
+{-| Make a real configuration, with your input and output ports.
+
+The parameters are:
+
+    makeConfig wrapper sendPort receivePort
+
+Where `wrapper` turns a `WebSocketCmd` into your `msg` type, sendPort is an output port, and receivePort is an input port.
+
+-}
+makeConfig : (WebSocketCmd msg -> msg) -> (Value -> Cmd msg) -> ((Value -> msg) -> Sub msg) -> Config msg
+makeConfig wrapper sendPort receivePort =
+    Config wrapper sendPort receivePort Nothing
+
+
+makeSimulatorConfig : (WebSocketCmd msg -> msg) -> (Value -> Value) -> Config msg
+makeSimulatorConfig wrapper simulator =
+    Config wrapper (\_ -> Cmd.none) (\_ -> Sub.none) (Just simulator)
+
+
+type alias StateRecord msg =
+    { config : Config msg
+    , sockets : SocketsDict
     , queues : QueuesDict
     , subs : SubsDict msg
     }
+
+
+type State msg
+    = State (StateRecord msg)
+
+
+{-| Make state to store in your model.
+
+The `Config` arg is the result of `makeConfig` or `makeSimulatorConfig`.
+
+-}
+makeState : Config msg -> State msg
+makeState config =
+    State <| StateRecord config Dict.empty Dict.empty Dict.empty
 
 
 type alias SocketsDict =
@@ -137,22 +187,17 @@ type Connection
     | Connected WS.WebSocket
 
 
-init : Task Never (State msg)
-init =
-    Task.succeed (State Dict.empty Dict.empty Dict.empty)
-
-
 
 -- HANDLE APP MESSAGES
 
 
 onEffects :
     Platform.Router msg Msg
-    -> List (MyCmd msg)
+    -> List (WebSocketCmd msg)
     -> List (MySub msg)
     -> State msg
     -> Task Never (State msg)
-onEffects router cmds subs state =
+onEffects router cmds subs (State state) =
     let
         sendMessagesGetNewQueues =
             sendMessagesHelp cmds state.sockets state.queues
@@ -184,13 +229,22 @@ onEffects router cmds subs state =
                     Dict.merge leftStep bothStep rightStep newEntries state.sockets (Task.succeed Dict.empty)
             in
             collectNewSockets
-                |> Task.andThen (\newSockets -> Task.succeed (State newSockets newQueues newSubs))
+                |> Task.andThen
+                    (\newSockets ->
+                        Task.succeed <|
+                            State
+                                { state
+                                    | sockets = newSockets
+                                    , queues = newQueues
+                                    , subs = newSubs
+                                }
+                    )
     in
     sendMessagesGetNewQueues
         |> Task.andThen cleanup
 
 
-sendMessagesHelp : List (MyCmd msg) -> SocketsDict -> QueuesDict -> Task x QueuesDict
+sendMessagesHelp : List (WebSocketCmd msg) -> SocketsDict -> QueuesDict -> Task x QueuesDict
 sendMessagesHelp cmds socketsDict queuesDict =
     case cmds of
         [] ->
@@ -241,12 +295,12 @@ type Msg
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
-onSelfMsg router selfMsg state =
+onSelfMsg router selfMsg ((State s) as state) =
     case selfMsg of
         Receive name str ->
             let
                 sends =
-                    Dict.get name state.subs
+                    Dict.get name s.subs
                         |> Maybe.withDefault []
                         |> List.map (\tagger -> Platform.sendToApp router (tagger str))
             in
@@ -254,7 +308,7 @@ onSelfMsg router selfMsg state =
                 |> Task.andThen (\_ -> Task.succeed state)
 
         Die name ->
-            case Dict.get name state.sockets of
+            case Dict.get name s.sockets of
                 Nothing ->
                     Task.succeed state
 
@@ -263,7 +317,7 @@ onSelfMsg router selfMsg state =
                         |> Task.andThen (\pid -> Task.succeed (updateSocket name (Opening 0 pid) state))
 
         GoodOpen name socket ->
-            case Dict.get name state.queues of
+            case Dict.get name s.queues of
                 Nothing ->
                     Task.succeed (updateSocket name (Connected socket) state)
 
@@ -274,7 +328,7 @@ onSelfMsg router selfMsg state =
                         messages
 
         BadOpen name ->
-            case Dict.get name state.sockets of
+            case Dict.get name s.sockets of
                 Nothing ->
                     Task.succeed state
 
@@ -287,13 +341,13 @@ onSelfMsg router selfMsg state =
 
 
 updateSocket : String -> Connection -> State msg -> State msg
-updateSocket name connection state =
-    { state | sockets = Dict.insert name connection state.sockets }
+updateSocket name connection (State state) =
+    State { state | sockets = Dict.insert name connection state.sockets }
 
 
 removeQueue : String -> State msg -> State msg
-removeQueue name state =
-    { state | queues = Dict.remove name state.queues }
+removeQueue name (State state) =
+    State { state | queues = Dict.remove name state.queues }
 
 
 
