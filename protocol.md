@@ -105,7 +105,7 @@ Reporting on results of a close:
     , args : { key : <string>
              , code : <string>
              , reason : <string>
-             , wasClean : <boolean>
+             , wasClean : <boolean string ("true" or anything else for false)>
              }
     }
 
@@ -113,14 +113,14 @@ Reporting bytes queued:
 
     { function: "bytesQueued"
     , args : { key : <string>
-             , bufferedAmount : <integer>
+             , bufferedAmount : <integer string>
              }
     }
 
 If an errror happens:
 
     { function: "error"
-    , args : { key : <string>      # null if no socket associated
+    , args : { key : <string>      # optional
              , code : <string>
              , description : <string>
              }
