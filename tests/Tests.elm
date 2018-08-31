@@ -7,7 +7,14 @@ import Json.Encode as JE exposing (Value)
 import List
 import Maybe exposing (withDefault)
 import Test exposing (..)
-import WebSocketClient.PortMessage as PM exposing (PortMessage(..), RawPortMessage)
+import WebSocketClient.PortMessage as PM
+    exposing
+        ( PortMessage(..)
+        , RawPortMessage
+        , decodePortMessage
+        , encodePortMessage
+        , encodeRawPortMessage
+        )
 
 
 testMap : (x -> String -> Test) -> List x -> List Test
@@ -19,12 +26,29 @@ testMap test data =
     List.map2 test data numbers
 
 
+oneAndTwo : ( a, b, c ) -> ( a, b )
+oneAndTwo ( a, b, _ ) =
+    ( a, b )
+
+
+oneAndThree : ( a, b, c ) -> ( a, c )
+oneAndThree ( a, _, c ) =
+    ( a, c )
+
+
+twoAndThree : ( a, b, c ) -> ( b, c )
+twoAndThree ( _, b, c ) =
+    ( b, c )
+
+
 all : Test
 all =
     Test.concat <|
         List.concat
-            [ testMap toRawTest toRawData
+            [ testMap toRawTest <| List.map oneAndTwo toRawData
+            , testMap encodeRawTest <| List.map oneAndThree toRawData
             , testMap fromRawTest fromRawData
+            , testMap decodeRawTest fromRawData
             ]
 
 
@@ -56,7 +80,22 @@ toRawTest ( message, sb ) name =
         )
 
 
-toRawData : List ( PortMessage, RawPortMessage )
+encodeRawTest : ( PortMessage, String ) -> String -> Test
+encodeRawTest ( message, sb ) name =
+    test ("encodeRawTest \"" ++ name ++ "\"")
+        (\_ ->
+            let
+                value =
+                    encodePortMessage message
+
+                string =
+                    JE.encode 0 value
+            in
+            Expect.equal sb string
+        )
+
+
+toRawData : List ( PortMessage, RawPortMessage, String )
 toRawData =
     [ ( POOpen
             { key = "thekey"
@@ -67,6 +106,7 @@ toRawData =
                 [ ( "key", "thekey" )
                 , ( "url", "theurl" )
                 ]
+      , "{\"function\":\"open\",\"args\":{\"key\":\"thekey\",\"url\":\"theurl\"}}"
       )
     , ( POSend
             { key = "thekey"
@@ -77,6 +117,7 @@ toRawData =
                 [ ( "key", "thekey" )
                 , ( "message", "hello" )
                 ]
+      , "{\"function\":\"send\",\"args\":{\"key\":\"thekey\",\"message\":\"hello\"}}"
       )
     , ( POClose
             { key = "anotherkey"
@@ -87,10 +128,12 @@ toRawData =
                 [ ( "key", "anotherkey" )
                 , ( "reason", "because" )
                 ]
+      , "{\"function\":\"close\",\"args\":{\"key\":\"anotherkey\",\"reason\":\"because\"}}"
       )
     , ( POBytesQueued { key = "anotherkey" }
       , RawPortMessage "bytesQueued" <|
             Dict.fromList [ ( "key", "anotherkey" ) ]
+      , "{\"function\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
       )
     ]
 
@@ -100,6 +143,18 @@ fromRawTest ( message, sb ) name =
     test ("fromRawTest \"" ++ name ++ "\"")
         (\_ ->
             Expect.equal sb <| PM.fromRawPortMessage message
+        )
+
+
+decodeRawTest : ( RawPortMessage, PortMessage ) -> String -> Test
+decodeRawTest ( rpm, sb ) name =
+    let
+        value =
+            encodeRawPortMessage rpm
+    in
+    test ("decodeRawTest \"" ++ name ++ "\"")
+        (\_ ->
+            expectResult (Ok sb) <| PM.decodePortMessage value
         )
 
 
