@@ -1,12 +1,72 @@
+//////////////////////////////////////////////////////////////////////
+//
+// WebSocketClient.js
+// JavaScript runtime code for Elm WebSocketClient
+// Copyright (c) 2018 Bill St. Clair <billstclair@gmail.com>
+// Portions Copyright (c) 2016 
+// Some rights reserved.
+// Distributed under the MIT License
+// See LICENSE.txt
+//
+//////////////////////////////////////////////////////////////////////
+
+
+// The single global variable defined by this file.
+// It is an object with a single `subscribe` property, a function:
+//
+//   WebSocketClientJS.subscribe(app,
+//                               [webSocketClientToJsPortName,
+//                                [jsToWebSocketClientPortName]]);
+//
+// webSocketClientToJsPortName defaults to 'webSocketClientToJsPort'.
+// jsToWebSocketClientPortName defaults to 'jsToWebSocketClientPort'.
+//
+var WebSocketClient = {};
+
+(function() {
+
+WebSocketClient.subscribe = subscribe;
+
+function subscribe(app, webSocketClientToJsPortName, jsToWebSocketClientPortName) {
+  if (!webSocketClientToJsPortName) {
+    webSocketClientToJsPortName = 'webSocketClientToJs';
+  }
+  if (!jsToWebSocketClientPortName) {
+    jsToWebSocketClientPortName = 'jsToWebSocketClient';
+  }
+
+  var ports = app ? app.ports : null;
+  if (!ports) {
+    console.log('There is no "ports" property on:', app);
+    return;
+  }
+
+  var jsToWebSocketClientPort = ports[jsToWebSocketClientPortName];
+  if (!jsToWebSocketClientPort) {
+    console.log('There is no port named: ' + jsToWebSocketClientPortName);
+    return;
+  }
+
+  var webSocketClientToJsPort = ports[webSocketClientToJsPortName];
+  if (!webSocketClientToJsPort) {
+    console.log('There is no port named: ' + webSocketClientToJsPortName);
+    return;
+  }
+
+  webSocketClientToJsPort.subscribe(function(command) {
+    var returnValue = commandDispatch(command);
+    jsToWebSocketClientPort.send(returnValue);
+  });  
+}
+
+function commandDispatch(command) {
+  // For testing
+  return command;
+}
+
+})();
+
 /*
-
-import Elm.Kernel.Scheduler exposing (binding, succeed, fail, rawSpawn)
-import Maybe exposing (Just, Nothing)
-import WebSocket.LowLevel as WS exposing (BadSecurity, BadArgs, NotOpen, BadString, BadReason, BadCode)
-
-*/
-
-
 var _WebSocket_open = F2(function(url, settings)
 {
 	return __Scheduler_binding(function(callback)
@@ -96,3 +156,4 @@ function _WebSocket_bytesQueued(socket)
 		callback(__Scheduler_succeed(socket.bufferedAmount));
 	});
 }
+*/
