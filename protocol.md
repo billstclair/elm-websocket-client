@@ -6,7 +6,7 @@ WebSocketClient uses two protocols. One to talk between Elm and the port code, a
 
 I'm leaving out the function bodies here.
 
-### Sending Commands out the Output Port
+### Sending Commands through the Output Port
 
 The output port is in a `Config` instance inside the `State`.
 
@@ -26,14 +26,14 @@ The output port is in a `Config` instance inside the `State`.
     bytesQueued : String -> State msg -> (State msg, Cmd msg)
     bytesQueued key state = ...
 
+### Processing Values Received from the Input Port Subscription
+
     type Message
       = Connected { key : String, description : String }
       | MessageReceived { key : String, message : String }
       | Closed { key : String, code : String, reason : String, wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
       | Error { key : Maybe String, code : String, description : String }
-
-### Receiving Commands from the Output Port
 
     -- Call this on receiving a value through the subscription port
     -- Update the stored `State` from the received updated state.
