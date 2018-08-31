@@ -23,10 +23,10 @@ identical to this one, except for 0.19 changes, in
 -}
 
 import Browser
-import Html exposing (Html, button, div, input, text)
+import Html exposing (Html, button, div, input, p, text)
 import Html.Attributes exposing (size, value)
 import Html.Events exposing (onClick, onInput)
-import WebSocket
+import WebSocketClient
 
 
 main =
@@ -119,7 +119,7 @@ view model =
             , button [ onClick Send ] [ text "Send" ]
             ]
         , div []
-            [ b "Received: "
-            , text model.receive
+            [ p []
+                [ text model.receive ]
             ]
         ]
