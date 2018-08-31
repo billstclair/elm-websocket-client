@@ -36,11 +36,6 @@ oneAndThree ( a, _, c ) =
     ( a, c )
 
 
-twoAndThree : ( a, b, c ) -> ( b, c )
-twoAndThree ( _, b, c ) =
-    ( b, c )
-
-
 all : Test
 all =
     Test.concat <|
