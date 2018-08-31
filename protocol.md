@@ -17,6 +17,9 @@ The output port is in a `Config` instance inside the `State`.
     openWithKey : String -> String -> State msg -> (State msg, Cmd msg)
     openWithKey key url state = ...
 
+    send : String -> String -> State msg -> (State msg, Cmd msg)
+    send key message state = ...
+
     close : String -> State msg -> (State msg, Cmd msg)
     close key state = ...
 
