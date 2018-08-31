@@ -7,6 +7,7 @@ port module Main exposing (main)
 -}
 
 import Browser
+import Cmd.Extra exposing (withCmd, withNoCmd)
 import Html exposing (Html, button, div, input, p, text)
 import Html.Attributes exposing (size, value)
 import Html.Events exposing (onClick, onInput)
@@ -46,11 +47,10 @@ type alias Model =
 
 init : () -> ( Model, Cmd Msg )
 init flags =
-    ( { send = "Hello World!"
-      , receive = ""
-      }
-    , Cmd.none
-    )
+    { send = "Hello World!"
+    , receive = ""
+    }
+        |> withNoCmd
 
 
 
@@ -67,21 +67,19 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         UpdateSend send ->
-            ( { model | send = send }, Cmd.none )
+            { model | send = send } |> withNoCmd
 
         Send ->
-            ( model
-            , webSocketClientToJs <| JE.string model.send
-            )
+            model
+                |> withCmd
+                    (webSocketClientToJs <| JE.string model.send)
 
         Receive value ->
             let
                 receive =
                     JE.encode 0 value
             in
-            ( { model | receive = receive }
-            , Cmd.none
-            )
+            { model | receive = receive } |> withNoCmd
 
 
 
