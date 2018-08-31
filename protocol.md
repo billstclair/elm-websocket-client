@@ -97,29 +97,29 @@ I'm leaving out the function bodies here.
 
 The output port is in a `Config` instance inside the `State`.
 
--- The url itself will be used as key
-open : String -> State msg -> (State msg, Cmd msg)
-open url state = ...
+    -- The url itself will be used as key
+    open : String -> State msg -> (State msg, Cmd msg)
+    open url state = ...
 
-openWithKey : String -> String -> State msg -> (State msg, Cmd msg)
-openWithKey key url state = ...
+    openWithKey : String -> String -> State msg -> (State msg, Cmd msg)
+    openWithKey key url state = ...
 
-close : String -> State msg -> (State msg, Cmd msg)
-close key state = ...
+    close : String -> State msg -> (State msg, Cmd msg)
+    close key state = ...
 
-bytesQueued : String -> State msg -> (State msg, Cmd msg)
-bytesQueued key state = ...
+    bytesQueued : String -> State msg -> (State msg, Cmd msg)
+    bytesQueued key state = ...
 
-type Message
-  = Connected { key : String, description : String }
-  | MessageReceived { key : String, message : String }
-  | Closed { key : String, code : String, reason : String, wasClean : Bool }
-  | BytesQueued { key : String, bufferedAmount : Int }
-  | Error { key : Maybe String, code : String, description : String }
+    type Message
+      = Connected { key : String, description : String }
+      | MessageReceived { key : String, message : String }
+      | Closed { key : String, code : String, reason : String, wasClean : Bool }
+      | BytesQueued { key : String, bufferedAmount : Int }
+      | Error { key : Maybe String, code : String, description : String }
 
 ### Receiving Commands from the Output Port
 
--- Call this on receiving a value through the subscription port
--- Update the stored `State` from the received updated state.
-update : Value -> State msg -> (State msg, Message)
+    -- Call this on receiving a value through the subscription port
+    -- Update the stored `State` from the received updated state.
+    update : Value -> State msg -> (State msg, Message)
 
