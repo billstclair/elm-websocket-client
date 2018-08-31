@@ -3,36 +3,36 @@
 // WebSocketClient.js
 // JavaScript runtime code for Elm WebSocketClient
 // Copyright (c) 2018 Bill St. Clair <billstclair@gmail.com>
-// Portions Copyright (c) 2016 
+// Portions Copyright (c) 2016 Evan Czaplicki
 // Some rights reserved.
 // Distributed under the MIT License
-// See LICENSE.txt
+// See LICENSE
 //
 //////////////////////////////////////////////////////////////////////
 
-
-// The single global variable defined by this file.
-// It is an object with a single `subscribe` property, a function:
+// WebSocketClient is the single global variable defined by this file.
+// It is an object with a `subscribe` property, a function, called as:
 //
 //   WebSocketClientJS.subscribe(app,
-//                               [webSocketClientToJsPortName,
-//                                [jsToWebSocketClientPortName]]);
+//                               [webSocketClientToJsName],
+//                               [jsToWebSocketClientName]);
 //
-// webSocketClientToJsPortName defaults to 'webSocketClientToJsPort'.
-// jsToWebSocketClientPortName defaults to 'jsToWebSocketClientPort'.
-//
+// webSocketClientToJsName defaults to 'webSocketClientToJs'.
+// jsToWebSocketClientName defaults to 'jsToWebSocketClient'.
+// They name Elm ports.
+
 var WebSocketClient = {};
 
 (function() {
 
 WebSocketClient.subscribe = subscribe;
 
-function subscribe(app, webSocketClientToJsPortName, jsToWebSocketClientPortName) {
-  if (!webSocketClientToJsPortName) {
-    webSocketClientToJsPortName = 'webSocketClientToJs';
+function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
+  if (!webSocketClientToJsName) {
+    webSocketClientToJsName = 'webSocketClientToJs';
   }
-  if (!jsToWebSocketClientPortName) {
-    jsToWebSocketClientPortName = 'jsToWebSocketClient';
+  if (!jsToWebSocketClientName) {
+    jsToWebSocketClientName = 'jsToWebSocketClient';
   }
 
   var ports = app ? app.ports : null;
@@ -41,15 +41,15 @@ function subscribe(app, webSocketClientToJsPortName, jsToWebSocketClientPortName
     return;
   }
 
-  var jsToWebSocketClientPort = ports[jsToWebSocketClientPortName];
+  var jsToWebSocketClientPort = ports[jsToWebSocketClientName];
   if (!jsToWebSocketClientPort) {
-    console.log('There is no port named: ' + jsToWebSocketClientPortName);
+    console.log('There is no port named: ' + jsToWebSocketClientName);
     return;
   }
 
-  var webSocketClientToJsPort = ports[webSocketClientToJsPortName];
+  var webSocketClientToJsPort = ports[webSocketClientToJsName];
   if (!webSocketClientToJsPort) {
-    console.log('There is no port named: ' + webSocketClientToJsPortName);
+    console.log('There is no port named: ' + webSocketClientToJsName);
     return;
   }
 
