@@ -12,8 +12,9 @@
 
 
 module WebSocketClient exposing
-    ( Config, State, WebSocketCmd
+    ( Config, State
     , listen, keepAlive, send
+    , close, keepAliveWithKey, listenWithKey, process, sendWithKey
     )
 
 {-| Web sockets make it cheaper to talk to your servers.
@@ -31,7 +32,7 @@ connection once and then keep using. The major benefits of this are:
 
 # Web Sockets
 
-@docs Config, State, WebSocketCmd
+@docs Config, State
 
 @docs listen, keepAlive, send
 
@@ -40,6 +41,7 @@ connection once and then keep using. The major benefits of this are:
 import Dict exposing (Dict)
 import Json.Encode as JE exposing (Value)
 import Process
+import Set exposing (Set)
 import Task exposing (Task)
 import WebSocketClient.LowLevel as WS
 import WebSocketClient.PortMessage
@@ -54,38 +56,34 @@ import WebSocketClient.PortMessage
 -- COMMANDS
 
 
-{-| A command to pass, with a `State` to `processCmd`.
--}
-type WebSocketCmd msg
-    = Send String String
-
-
 {-| Send a message to a particular address. You might say something like this:
 
-    send "ws://echo.websocket.org" "Hello!"
+    send config state "ws://echo.websocket.org" "Hello!"
 
 **Note:** It is important that you are also subscribed to this address with
 `listen` or `keepAlive`. If you are not, the web socket will be created to
 send one message and then closed. Not good!
 
 -}
-send : String -> String -> Cmd msg
-send url message =
-    Cmd.none
+send : Config msg -> State msg -> String -> String -> ( State msg, Response msg )
+send config state url message =
+    sendWithKey config state url url message
 
 
-cmdMap : (a -> b) -> WebSocketCmd a -> WebSocketCmd b
-cmdMap _ (Send url msg) =
-    Send url msg
+{-| Like `send`, but allows matching a unique key to the connection.
+
+`send` uses the `url` as the `key`.
+
+    sendWithKey config state key url message
+
+-}
+sendWithKey : Config msg -> State msg -> String -> String -> String -> ( State msg, Response msg )
+sendWithKey config state key url message =
+    ( state, NoResponse )
 
 
 
 -- SUBSCRIPTIONS
-
-
-type MySub msg
-    = Listen String (String -> msg)
-    | KeepAlive String
 
 
 {-| Subscribe to any incoming messages on a websocket. You might say something
@@ -100,37 +98,66 @@ like this:
 with an exponential backoff strategy. Any messages you try to `send` while the
 connection is down are queued and will be sent as soon as possible.
 
+    listen config state url
+
 -}
-listen : String -> (String -> msg) -> Sub msg
-listen url tagger =
-    Sub.none
+listen : Config msg -> State msg -> String -> ( State msg, Response msg )
+listen config state url =
+    listenWithKey config state url url
+
+
+{-| Like `listen`, but allows matching a unique key to the connection.
+
+`listen` uses the url as the key.
+
+    listenWithKey config state key url
+
+-}
+listenWithKey : Config msg -> State msg -> String -> String -> ( State msg, Response msg )
+listenWithKey config state key url =
+    ( state, NoResponse )
+
+
+{-| Close a WebSocket opened by `listen` or `keepAlive`.
+
+    close config state key
+
+The `key` arg is either they `key` arg to `listenWithKey` or
+`keepAliveWithKey` or the `url` arg to `listen` or `keepAlive`.
+
+-}
+close : Config msg -> State msg -> String -> ( State msg, Response msg )
+close config state key =
+    ( state, NoResponse )
 
 
 {-| Keep a connection alive, but do not report any messages. This is useful
 for keeping a connection open for when you only need to `send` messages. So
 you might say something like this:
 
-    subscriptions model =
-        keepAlive "ws://echo.websocket.org"
+    let (state2, response) =
+        keepAlive config state "ws://echo.websocket.org"
+    in
+        ...
 
 **Note:** If the connection goes down, the effect manager tries to reconnect
 with an exponential backoff strategy. Any messages you try to `send` while the
 connection is down are queued and will be sent as soon as possible.
 
 -}
-keepAlive : String -> Sub msg
-keepAlive url =
-    Sub.none
+keepAlive : Config msg -> State msg -> String -> ( State msg, Response msg )
+keepAlive config state url =
+    keepAliveWithKey config state url url
 
 
-subMap : (a -> b) -> MySub a -> MySub b
-subMap func sub =
-    case sub of
-        Listen url tagger ->
-            Listen url (tagger >> func)
+{-| Like `keepAlive`, but allows matching a unique key to the connection.
 
-        KeepAlive url ->
-            KeepAlive url
+    keeAliveWithKey config state key url
+
+-}
+keepAliveWithKey : Config msg -> State msg -> String -> String -> ( State msg, Response msg )
+keepAliveWithKey config state key url =
+    ( state, NoResponse )
 
 
 
@@ -138,8 +165,7 @@ subMap func sub =
 
 
 type alias Config msg =
-    { wrapper : WebSocketCmd msg -> msg
-    , sendPort : Value -> Cmd msg
+    { sendPort : Value -> Cmd msg
     , receivePort : (Value -> msg) -> Sub msg
     , simulator : Maybe (String -> String)
     }
@@ -149,26 +175,30 @@ type alias Config msg =
 
 The parameters are:
 
-    makeConfig wrapper sendPort receivePort
+    makeConfig sendPort receivePort
 
-Where `wrapper` turns a `WebSocketCmd` into your `msg` type, sendPort is an output port, and receivePort is an input port.
+Where `sendPort` is your output (`Cmd`) port, and `receivePort` is your input (`Sub`) port.
 
 -}
-makeConfig : (WebSocketCmd msg -> msg) -> (Value -> Cmd msg) -> ((Value -> msg) -> Sub msg) -> Config msg
-makeConfig wrapper sendPort receivePort =
-    Config wrapper sendPort receivePort Nothing
+makeConfig : (Value -> Cmd msg) -> ((Value -> msg) -> Sub msg) -> Config msg
+makeConfig sendPort receivePort =
+    Config sendPort receivePort Nothing
 
 
-makeSimulatorConfig : (WebSocketCmd msg -> msg) -> (String -> String) -> Config msg
-makeSimulatorConfig wrapper simulator =
-    Config wrapper (\_ -> Cmd.none) (\_ -> Sub.none) (Just simulator)
+makeSimulatorConfig : (String -> String) -> Config msg
+makeSimulatorConfig simulator =
+    Config (\_ -> Cmd.none) (\_ -> Sub.none) (Just simulator)
+
+
+type alias QueuesDict =
+    Dict.Dict String (List String)
 
 
 type alias StateRecord msg =
     { config : Config msg
-    , sockets : SocketsDict
+    , openSockets : Set String
+    , connectingSockets : Set String
     , queues : QueuesDict
-    , subs : SubsDict msg
     }
 
 
@@ -183,236 +213,36 @@ The `Config` arg is the result of `makeConfig` or `makeSimulatorConfig`.
 -}
 makeState : Config msg -> State msg
 makeState config =
-    State <| StateRecord config Dict.empty Dict.empty Dict.empty
+    State <| StateRecord config Set.empty Set.empty Dict.empty
 
 
-type alias SocketsDict =
-    Dict.Dict String Connection
+type Response msg
+    = NoResponse
+    | CmdResponse (Cmd msg)
+    | ConnectedResponse { key : String }
+    | MessageReceivedResponse { key : String, message : String }
+    | ClosedResponse
+        { key : String
+        , code : String
+        , reason : String
+        , wasClean : Bool
+        }
+    | BytesQueuedResponse { key : String, bufferedAmount : Int }
+    | ErrorResponse
+        { key : Maybe String
+        , code : String
+        , description : String
+        , name : Maybe String
+        }
 
 
-type alias QueuesDict =
-    Dict.Dict String (List String)
-
-
-type alias SubsDict msg =
-    Dict.Dict String (List (String -> msg))
-
-
-type Connection
-    = Opening Int Process.Id
-    | Connected WS.WebSocket
+{-| Process a Value that comes in over the subscription port
+-}
+process : Config msg -> Value -> State msg -> ( State msg, Response msg )
+process config value state =
+    ( state, NoResponse )
 
 
 
 -- HANDLE APP MESSAGES
-
-
-onEffects :
-    Platform.Router msg Msg
-    -> List (WebSocketCmd msg)
-    -> List (MySub msg)
-    -> State msg
-    -> Task Never (State msg)
-onEffects router cmds subs (State state) =
-    let
-        sendMessagesGetNewQueues =
-            sendMessagesHelp cmds state.sockets state.queues
-
-        newSubs =
-            buildSubDict subs Dict.empty
-
-        cleanup newQueues =
-            let
-                newEntries =
-                    Dict.union newQueues (Dict.map (\k v -> []) newSubs)
-
-                leftStep name _ getNewSockets =
-                    getNewSockets
-                        |> Task.andThen
-                            (\newSockets ->
-                                attemptOpen router 0 name
-                                    |> Task.andThen (\pid -> Task.succeed (Dict.insert name (Opening 0 pid) newSockets))
-                            )
-
-                bothStep name _ connection getNewSockets =
-                    Task.map (Dict.insert name connection) getNewSockets
-
-                rightStep name connection getNewSockets =
-                    closeConnection connection
-                        |> Task.andThen (\_ -> getNewSockets)
-
-                collectNewSockets =
-                    Dict.merge leftStep bothStep rightStep newEntries state.sockets (Task.succeed Dict.empty)
-            in
-            collectNewSockets
-                |> Task.andThen
-                    (\newSockets ->
-                        Task.succeed <|
-                            State
-                                { state
-                                    | sockets = newSockets
-                                    , queues = newQueues
-                                    , subs = newSubs
-                                }
-                    )
-    in
-    sendMessagesGetNewQueues
-        |> Task.andThen cleanup
-
-
-sendMessagesHelp : List (WebSocketCmd msg) -> SocketsDict -> QueuesDict -> Task x QueuesDict
-sendMessagesHelp cmds socketsDict queuesDict =
-    case cmds of
-        [] ->
-            Task.succeed queuesDict
-
-        (Send name msg) :: rest ->
-            case Dict.get name socketsDict of
-                Just (Connected socket) ->
-                    WS.send socket msg
-                        |> Task.andThen (\_ -> sendMessagesHelp rest socketsDict queuesDict)
-
-                _ ->
-                    sendMessagesHelp rest socketsDict (Dict.update name (add msg) queuesDict)
-
-
-buildSubDict : List (MySub msg) -> SubsDict msg -> SubsDict msg
-buildSubDict subs dict =
-    case subs of
-        [] ->
-            dict
-
-        (Listen name tagger) :: rest ->
-            buildSubDict rest (Dict.update name (add tagger) dict)
-
-        (KeepAlive name) :: rest ->
-            buildSubDict rest (Dict.update name (Just << Maybe.withDefault []) dict)
-
-
-add : a -> Maybe (List a) -> Maybe (List a)
-add value maybeList =
-    case maybeList of
-        Nothing ->
-            Just [ value ]
-
-        Just list ->
-            Just (value :: list)
-
-
-
--- HANDLE SELF MESSAGES
-
-
-type Msg
-    = Receive String String
-    | Die String
-    | GoodOpen String WS.WebSocket
-    | BadOpen String
-
-
-onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
-onSelfMsg router selfMsg ((State s) as state) =
-    case selfMsg of
-        Receive name str ->
-            let
-                sends =
-                    Dict.get name s.subs
-                        |> Maybe.withDefault []
-                        |> List.map (\tagger -> Platform.sendToApp router (tagger str))
-            in
-            Task.sequence sends
-                |> Task.andThen (\_ -> Task.succeed state)
-
-        Die name ->
-            case Dict.get name s.sockets of
-                Nothing ->
-                    Task.succeed state
-
-                Just _ ->
-                    attemptOpen router 0 name
-                        |> Task.andThen (\pid -> Task.succeed (updateSocket name (Opening 0 pid) state))
-
-        GoodOpen name socket ->
-            case Dict.get name s.queues of
-                Nothing ->
-                    Task.succeed (updateSocket name (Connected socket) state)
-
-                Just messages ->
-                    List.foldl
-                        (\msg task -> WS.send socket msg |> Task.andThen (\_ -> task))
-                        (Task.succeed (removeQueue name (updateSocket name (Connected socket) state)))
-                        messages
-
-        BadOpen name ->
-            case Dict.get name s.sockets of
-                Nothing ->
-                    Task.succeed state
-
-                Just (Opening n _) ->
-                    attemptOpen router (n + 1) name
-                        |> Task.andThen (\pid -> Task.succeed (updateSocket name (Opening (n + 1) pid) state))
-
-                Just (Connected _) ->
-                    Task.succeed state
-
-
-updateSocket : String -> Connection -> State msg -> State msg
-updateSocket name connection (State state) =
-    State { state | sockets = Dict.insert name connection state.sockets }
-
-
-removeQueue : String -> State msg -> State msg
-removeQueue name (State state) =
-    State { state | queues = Dict.remove name state.queues }
-
-
-
--- OPENING WEBSOCKETS WITH EXPONENTIAL BACKOFF
-
-
-attemptOpen : Platform.Router msg Msg -> Int -> String -> Task x Process.Id
-attemptOpen router backoff name =
-    let
-        goodOpen ws =
-            Platform.sendToSelf router (GoodOpen name ws)
-
-        badOpen _ =
-            Platform.sendToSelf router (BadOpen name)
-
-        actuallyAttemptOpen =
-            open name router
-                |> Task.andThen goodOpen
-                |> Task.onError badOpen
-    in
-    Process.spawn (after backoff |> Task.andThen (\_ -> actuallyAttemptOpen))
-
-
-open : String -> Platform.Router msg Msg -> Task WS.BadOpen WS.WebSocket
-open name router =
-    WS.open name
-        { onMessage = \_ msg -> Platform.sendToSelf router (Receive name msg)
-        , onClose = \details -> Platform.sendToSelf router (Die name)
-        }
-
-
-after : Int -> Task x ()
-after backoff =
-    if backoff < 1 then
-        Task.succeed ()
-
-    else
-        Process.sleep (toFloat (10 * 2 ^ backoff))
-
-
-
--- CLOSE CONNECTIONS
-
-
-closeConnection : Connection -> Task x ()
-closeConnection connection =
-    case connection of
-        Opening _ pid ->
-            Process.kill pid
-
-        Connected socket ->
-            WS.close socket
+-- Will eventually contain the functionality in Effects.elm

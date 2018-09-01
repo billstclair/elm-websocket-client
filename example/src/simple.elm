@@ -156,7 +156,7 @@ sendSample sample =
 view : Model -> Html Msg
 view model =
     div []
-        [ h1 [] [ text "WebSocket Test Console" ]
+        [ h1 [] [ text "WebSocketClient Test Console" ]
         , p []
             [ input
                 [ value model.send
