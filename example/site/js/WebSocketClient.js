@@ -35,23 +35,9 @@ function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
     jsToWebSocketClientName = 'jsToWebSocketClient';
   }
 
-  var ports = app ? app.ports : null;
-  if (!ports) {
-    console.log('There is no "ports" property on:', app);
-    return;
-  }
-
+  ports = app.ports;
   var jsToWebSocketClientPort = ports[jsToWebSocketClientName];
-  if (!jsToWebSocketClientPort) {
-    console.log('There is no port named: ' + jsToWebSocketClientName);
-    return;
-  }
-
   var webSocketClientToJsPort = ports[webSocketClientToJsName];
-  if (!webSocketClientToJsPort) {
-    console.log('There is no port named: ' + webSocketClientToJsName);
-    return;
-  }
 
   webSocketClientToJsPort.subscribe(function(command) {
     var returnValue = commandDispatch(command);
@@ -59,10 +45,65 @@ function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
   });  
 }
 
-function commandDispatch(command) {
-  // For testing
-  return command;
+function errorReturn(args) {
+  return { tag: "error",
+           args : args
+         }
 }
+
+function commandDispatch(command) {
+  if (typeof(command) == 'object') {
+    var tag = command.tag;
+    var f = functions[tag];
+    if (f) {
+      var args = command.args;
+      if (typeof(args) == 'object') {
+        return f(args);
+      }
+      return errorReturn({ code: "badargs",
+                           description: "Args were not an object: " +
+                             JSON.stringify(args)
+                         });
+    }
+    return errorReturn({ code: "badfunc",
+                         description: "Bad func: " + JSON.stringify(tag)
+                       });
+  }
+  return errorReturn({ code: "badcommand",
+                       description: "Bad command " + JSON.stringify(command)
+                     });
+}
+
+var functions = {
+  open: doOpen,
+  send: doSend,
+  close: doClose,
+  bytesQueued: doBytesQueued
+};
+
+function unimplemented(func, args) {
+  return errorReturn ({ code: "unimplemented",
+                        description: "Not implemented: "+ func + "(" +
+                           JSON.stringify(args) +
+                           ")"
+                      });
+}
+
+function doOpen(args) {
+  return unimplemented("doOpen", args);
+} 
+
+function doSend(args) {
+  return unimplemented("doSend", args);
+} 
+
+function doClose(args) {
+  return unimplemented("doClose", args);
+} 
+
+function doBytesQueued(args) {
+  return unimplemented("doBytesQueued", args);
+} 
 
 })();
 

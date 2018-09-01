@@ -29,7 +29,7 @@ import Json.Encode as JE exposing (Value)
 
 
 type alias RawPortMessage =
-    { function : String
+    { tag : String
     , args : Dict String String
     }
 
@@ -45,7 +45,7 @@ encodeRawPortMessage message =
                     )
     in
     JE.object
-        [ ( "function", JE.string message.function )
+        [ ( "tag", JE.string message.tag )
         , ( "args", JE.object args )
         ]
 
@@ -53,7 +53,7 @@ encodeRawPortMessage message =
 rawPortMessageDecoder : Decoder RawPortMessage
 rawPortMessageDecoder =
     JD.map2 RawPortMessage
-        (JD.field "function" JD.string)
+        (JD.field "tag" JD.string)
         (JD.field "args" (JD.dict JD.string))
 
 
@@ -130,8 +130,8 @@ getDictElements keys dict =
 
 
 fromRawPortMessage : RawPortMessage -> PortMessage
-fromRawPortMessage { function, args } =
-    case function of
+fromRawPortMessage { tag, args } =
+    case tag of
         "connected" ->
             case getDictElements [ "key", "description" ] args of
                 Just [ key, description ] ->

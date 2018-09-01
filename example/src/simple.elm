@@ -30,9 +30,18 @@ port webSocketClientToJs : Value -> Cmd msg
 port jsToWebSocketClient : (Value -> msg) -> Sub msg
 
 
+port parse : String -> Cmd msg
+
+
+port parseReturn : (Value -> msg) -> Sub msg
+
+
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    jsToWebSocketClient Receive
+    Sub.batch
+        [ jsToWebSocketClient Receive
+        , parseReturn Process
+        ]
 
 
 
@@ -47,7 +56,9 @@ type alias Model =
 
 init : () -> ( Model, Cmd Msg )
 init flags =
-    { send = "Hello World!"
+    { send = """
+              {"tag": "send", "args": {"key": "foo"}}
+             """ |> String.trim
     , receive = ""
     }
         |> withNoCmd
@@ -60,6 +71,7 @@ init flags =
 type Msg
     = UpdateSend String
     | Send
+    | Process Value
     | Receive Value
 
 
@@ -70,9 +82,10 @@ update msg model =
             { model | send = send } |> withNoCmd
 
         Send ->
-            model
-                |> withCmd
-                    (webSocketClientToJs <| JE.string model.send)
+            model |> withCmd (parse model.send)
+
+        Process value ->
+            model |> withCmd (webSocketClientToJs value)
 
         Receive value ->
             let
@@ -94,18 +107,20 @@ b string =
 view : Model -> Html Msg
 view model =
     div []
-        [ div []
+        [ p []
             [ input
                 [ value model.send
                 , onInput UpdateSend
-                , size 50
+                , size 100
                 ]
                 []
             , text " "
             , button [ onClick Send ] [ text "Send" ]
             ]
-        , div []
-            [ p []
-                [ text model.receive ]
+        , p []
+            [ text """
+                   """
             ]
+        , p []
+            [ text model.receive ]
         ]

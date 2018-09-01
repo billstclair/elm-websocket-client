@@ -2,6 +2,8 @@
 
 WebSocketClient uses two protocols. One to talk between Elm and the port code, and one to talk between the package and the user code. In the old, native and effects manager implementation, the former was completely invisible to the user. Now the user code is an in-between, passing the `Value` that comes from the input port on to the library for interpretation, and returning each `Cmd` that is created by the library to the run-time from the user `update` function.
 
+I did most of this before watching Murphy Randall's [ports talk](https://www.youtube.com/watch?v=P3pL85n9_5s), but I'm calling my function name parameter "tag" because of that.
+
 ## Between User Code and the WebSocketClient Package
 
 I'm leaving out the function bodies here.
@@ -45,7 +47,7 @@ There are two ports, `inPort`, which is subscribed to get messages from port cod
 
 The general form of the port messages is:
 
-    { function: <string>
+    { tag: <string>
     , args : { name: <value>, ... }
     }
     
@@ -53,7 +55,7 @@ The general form of the port messages is:
 
 Open a socket. Each socket has a unique key. Initially, this will just be the URL, but having the user allocate unique names allows multiple sockets to be open to the same URL.
 
-    { function: "open"
+    { tag: "open"
     , args : { key : <string>
              , url : <string>
              }
@@ -61,7 +63,7 @@ Open a socket. Each socket has a unique key. Initially, this will just be the UR
 
 Send a message out through a socket.
 
-    { function: "send"
+    { tag: "send"
     , args : { key : <string>
              , message : <string>
              }
@@ -69,7 +71,7 @@ Send a message out through a socket.
 
 Close a socket.
 
-    { function: "close"
+    { tag: "close"
     , args : { key : <string>
              , reason : <string>
              }
@@ -77,7 +79,7 @@ Close a socket.
 
 Request bytes queued:
 
-    { function: "bytesQueued"
+    { tag: "bytesQueued"
     , args : { key : <string>
              }
     }
@@ -86,7 +88,7 @@ Request bytes queued:
 
 If opening a socket succeeds:
 
-    { function: "connected"
+    { tag: "connected"
     , args : { key : <string>
              , description : <string>
              }
@@ -94,14 +96,14 @@ If opening a socket succeeds:
 
 On receiving a message:
 
-    { function: "messageReceived"
+    { tag: "messageReceived"
     , args : { key : <string>
              , message : <string>
              }
              
 Reporting on results of a close:
 
-    { function: "closed"
+    { tag: "closed"
     , args : { key : <string>
              , code : <string>
              , reason : <string>
@@ -111,7 +113,7 @@ Reporting on results of a close:
 
 Reporting bytes queued:
 
-    { function: "bytesQueued"
+    { tag: "bytesQueued"
     , args : { key : <string>
              , bufferedAmount : <integer string>
              }
@@ -119,7 +121,7 @@ Reporting bytes queued:
 
 If an errror happens:
 
-    { function: "error"
+    { tag: "error"
     , args : { key : <string>      # optional
              , code : <string>
              , description : <string>

@@ -40,6 +40,27 @@ var app = Elm[mainModule].init({
 //
 WebSocketClient.subscribe(app);
 
+// This is used by example/src/simple.elm to parse a JSON string.
+// You can safely remove it from your shipped code, unless you need
+// to parse a JSON string into an Elm Json.Encode.Value.
+// If the ports it wants aren't available, it will do nothing.
+(function() {
+  var ports = app.ports;
+  var parse = ports.parse;
+  var parseReturn = ports.parseReturn;
+  if (parse && parseReturn) {
+    parse.subscribe(function(string) {
+      var result;
+      try {
+        var val = JSON.parse(string);
+        result = val
+      } catch(err) {
+        result = "" + err;
+      }
+      parseReturn.send(result);
+    });
+  }
+})();
 
     </script>
   </body>

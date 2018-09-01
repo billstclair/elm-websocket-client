@@ -101,7 +101,7 @@ toRawData =
                 [ ( "key", "thekey" )
                 , ( "url", "theurl" )
                 ]
-      , "{\"function\":\"open\",\"args\":{\"key\":\"thekey\",\"url\":\"theurl\"}}"
+      , "{\"tag\":\"open\",\"args\":{\"key\":\"thekey\",\"url\":\"theurl\"}}"
       )
     , ( POSend
             { key = "thekey"
@@ -112,7 +112,7 @@ toRawData =
                 [ ( "key", "thekey" )
                 , ( "message", "hello" )
                 ]
-      , "{\"function\":\"send\",\"args\":{\"key\":\"thekey\",\"message\":\"hello\"}}"
+      , "{\"tag\":\"send\",\"args\":{\"key\":\"thekey\",\"message\":\"hello\"}}"
       )
     , ( POClose
             { key = "anotherkey"
@@ -123,12 +123,12 @@ toRawData =
                 [ ( "key", "anotherkey" )
                 , ( "reason", "because" )
                 ]
-      , "{\"function\":\"close\",\"args\":{\"key\":\"anotherkey\",\"reason\":\"because\"}}"
+      , "{\"tag\":\"close\",\"args\":{\"key\":\"anotherkey\",\"reason\":\"because\"}}"
       )
     , ( POBytesQueued { key = "anotherkey" }
       , RawPortMessage "bytesQueued" <|
             Dict.fromList [ ( "key", "anotherkey" ) ]
-      , "{\"function\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
+      , "{\"tag\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
       )
     ]
 
