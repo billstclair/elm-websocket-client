@@ -8,7 +8,7 @@ port module Main exposing (main)
 
 import Browser
 import Cmd.Extra exposing (withCmd, withNoCmd)
-import Html exposing (Html, button, div, input, p, text)
+import Html exposing (Html, button, div, h1, input, p, text)
 import Html.Attributes exposing (size, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD
@@ -50,16 +50,38 @@ subscriptions model =
 
 type alias Model =
     { send : String
-    , receive : String
+    , receive : List String
     }
+
+
+openJson : String
+openJson =
+    String.trim
+        """
+         {"tag": "open", "args": {"key": "foo", "url": "wss://echo.websocket.org"}}
+        """
+
+
+sendJson : String
+sendJson =
+    String.trim
+        """
+       {"tag": "send", "args": {"key": "foo", "message": "Hello, World!"}}
+      """
+
+
+closeJson : String
+closeJson =
+    String.trim
+        """
+         {"tag": "close", "args": {"key": "foo", "reason": "Just because."}}
+        """
 
 
 init : () -> ( Model, Cmd Msg )
 init flags =
-    { send = """
-              {"tag": "send", "args": {"key": "foo"}}
-             """ |> String.trim
-    , receive = ""
+    { send = openJson
+    , receive = []
     }
         |> withNoCmd
 
@@ -90,7 +112,7 @@ update msg model =
         Receive value ->
             let
                 receive =
-                    JE.encode 0 value
+                    JE.encode 0 value :: model.receive
             in
             { model | receive = receive } |> withNoCmd
 
@@ -99,15 +121,21 @@ update msg model =
 -- VIEW
 
 
-b : String -> Html Msg
+b : String -> Html msg
 b string =
     Html.b [] [ text string ]
+
+
+br : Html msg
+br =
+    Html.br [] []
 
 
 view : Model -> Html Msg
 view model =
     div []
-        [ p []
+        [ h1 [] [ text "WebSocket Test Console" ]
+        , p []
             [ input
                 [ value model.send
                 , onInput UpdateSend
@@ -118,9 +146,17 @@ view model =
             , button [ onClick Send ] [ text "Send" ]
             ]
         , p []
-            [ text """
-                   """
+            [ b "Sample messages:"
+            , br
+            , text sendJson
+            , br
+            , text closeJson
+            , br
+            , text openJson
             ]
-        , p []
-            [ text model.receive ]
+        , p [] <|
+            List.concat
+                [ [ b "Received:", br ]
+                , List.intersperse br (List.map text model.receive)
+                ]
         ]

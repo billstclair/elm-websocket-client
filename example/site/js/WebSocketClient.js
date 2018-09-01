@@ -27,6 +27,8 @@ var WebSocketClient = {};
 
 WebSocketClient.subscribe = subscribe;
 
+var returnPort;
+
 function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
   if (!webSocketClientToJsName) {
     webSocketClientToJsName = 'webSocketClientToJs';
@@ -36,19 +38,24 @@ function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
   }
 
   ports = app.ports;
-  var jsToWebSocketClientPort = ports[jsToWebSocketClientName];
-  var webSocketClientToJsPort = ports[webSocketClientToJsName];
+  returnPort = ports[jsToWebSocketClientName];
+  var cmdPort = ports[webSocketClientToJsName];
 
-  webSocketClientToJsPort.subscribe(function(command) {
+  cmdPort.subscribe(function(command) {
     var returnValue = commandDispatch(command);
-    jsToWebSocketClientPort.send(returnValue);
+    if (returnValue) returnPort.send(returnValue);
   });  
 }
 
-function errorReturn(args) {
-  return { tag: "error",
-           args : args
-         }
+function objectReturn(tag, args) {
+  return { tag: tag, args : args };
+}
+
+function keyedErrorReturn(key, code, description) {
+  return objectReturn("error", { key: key, code: code, description: description });
+}
+function errorReturn(code, description) {
+  return objectReturn("error", { code: code, description: description });
 }
 
 function commandDispatch(command) {
@@ -60,18 +67,14 @@ function commandDispatch(command) {
       if (typeof(args) == 'object') {
         return f(args);
       }
-      return errorReturn({ code: "badargs",
-                           description: "Args were not an object: " +
-                             JSON.stringify(args)
-                         });
+      return errorReturn("badargs",
+                         "Args not an object: " + JSON.stringify(args));
     }
-    return errorReturn({ code: "badfunc",
-                         description: "Bad func: " + JSON.stringify(tag)
-                       });
+    return errorReturn("badtag",
+                       "Bad tag: " + JSON.stringify(tag));
   }
-  return errorReturn({ code: "badcommand",
-                       description: "Bad command " + JSON.stringify(command)
-                     });
+  return errorReturn("badcommand",
+                     "Bad command " + JSON.stringify(command));
 }
 
 var functions = {
@@ -82,23 +85,81 @@ var functions = {
 };
 
 function unimplemented(func, args) {
-  return errorReturn ({ code: "unimplemented",
-                        description: "Not implemented: "+ func + "(" +
-                           JSON.stringify(args) +
-                           ")"
-                      });
+  return errorReturn ("unimplemented",
+                      "Not implemented: "+ func +
+                      "(" + JSON.stringify(args) + ")");
 }
 
+var sockets = {}
+
 function doOpen(args) {
-  return unimplemented("doOpen", args);
+  var key = args.key;
+  var url = args.url;
+  if (!key) key = url;
+  if (sockets[key]) {
+    return errorReturn("keyused", "Key already has a socket open: " + key);
+  }
+  try {
+	var socket = new WebSocket(url);
+    sockets[key] = socket;
+  }
+  catch(err) {
+    return errorReturn('openfailed', "Can't create socket for URL: " + url)
+  }
+  socket.addEventListener("open", function(event) {
+    console.log("Socket connected for URL: " + url);
+    returnPort.send(objectReturn("connected",
+                                 { key: key,
+                                   description: "Socket connected for URL: " + url
+                                 }));
+  });
+  socket.addEventListener("message", function(event) {
+    var message = event.data;
+    console.log("Received for '" + key + "': " + message);
+    returnPort.send(objectReturn("messageReceived",
+                                 { key: key, message: message }));
+  });
+  socket.addEventListener("close", function(event) {
+	console.log("'" + key + "' closed");
+    returnPort.send(objectReturn("closed",
+                                 { key: key,
+                                   code: "" + event.code,
+                                   reason: "" + event.reason,
+                                   wasClean: event.wasClean ? "true" : "false"
+                                 }));
+  });
+  return null;
 } 
 
 function doSend(args) {
-  return unimplemented("doSend", args);
+  var key = args.key;
+  var message = args.message;
+  var socket = sockets[key];
+  if (!socket) {
+    return keyedErrorReturn(key, 'notopen', 'Socket not open');
+  }
+  try {
+	socket.send(message);
+  } catch(err) {
+    return keyedErrorReturn(key, 'badsend', 'Send error')
+  }
+  return null;
 } 
 
 function doClose(args) {
-  return unimplemented("doClose", args);
+  var key = args.key;
+  var reason = args.reason;
+  var socket = sockets[key];
+  if (!socket) {
+    return keyedErrorReturn(key, 'notopen', 'Socket not open')
+  }
+  try {
+    // Should this happen in the event listener?
+    delete sockets[key];
+    socket.close();
+  } catch(err) {
+    return keyedErrorReturn(key, 'badclose', 'Close error')
+  }
 } 
 
 function doBytesQueued(args) {
