@@ -78,6 +78,19 @@ closeJson =
         """
 
 
+bytesQueuedJson : String
+bytesQueuedJson =
+    String.trim
+        """
+         {"tag": "bytesQueued", "args": {"key": "foo"}}
+        """
+
+
+exampleJsons : List String
+exampleJsons =
+    [ sendJson, closeJson, bytesQueuedJson, openJson ]
+
+
 init : () -> ( Model, Cmd Msg )
 init flags =
     { send = openJson
@@ -148,15 +161,13 @@ view model =
             , text " "
             , button [ onClick Send ] [ text "Send" ]
             ]
-        , p []
-            [ b "Sample messages:"
-            , br
-            , text sendJson
-            , br
-            , text closeJson
-            , br
-            , text openJson
-            ]
+        , p [] <|
+            List.concat
+                [ [ b "Sample messages:"
+                  , br
+                  ]
+                , List.intersperse br <| List.map text exampleJsons
+                ]
         , p [] <|
             List.concat
                 [ [ b "Log:", br ]

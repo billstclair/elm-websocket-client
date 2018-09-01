@@ -131,12 +131,16 @@ function doOpen(args) {
   return null;
 } 
 
+function socketNotOpenReturn(key) {
+  return keyedErrorReturn(key, 'notopen', 'Socket not open');
+}
+
 function doSend(args) {
   var key = args.key;
   var message = args.message;
   var socket = sockets[key];
   if (!socket) {
-    return keyedErrorReturn(key, 'notopen', 'Socket not open');
+    return socketNotOpenReturn(key);
   }
   try {
 	socket.send(message);
@@ -151,7 +155,7 @@ function doClose(args) {
   var reason = args.reason;
   var socket = sockets[key];
   if (!socket) {
-    return keyedErrorReturn(key, 'notopen', 'Socket not open')
+    return socketNotOpenReturn(key);
   }
   try {
     // Should this happen in the event listener?
@@ -163,7 +167,15 @@ function doClose(args) {
 } 
 
 function doBytesQueued(args) {
-  return unimplemented("doBytesQueued", args);
+  var key = args.key;
+  var socket = sockets[key];
+  if (!socket) {
+    return socketNotOpenReturn(key);
+  }
+  returnPort.send(objectReturn("closed",
+                               { key: key,
+                                 bytesQueued: "" + socket.bufferedAmount
+                               }));
 } 
 
 })();
