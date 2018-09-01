@@ -50,7 +50,7 @@ subscriptions model =
 
 type alias Model =
     { send : String
-    , receive : List String
+    , log : List String
     }
 
 
@@ -81,7 +81,7 @@ closeJson =
 init : () -> ( Model, Cmd Msg )
 init flags =
     { send = openJson
-    , receive = []
+    , log = []
     }
         |> withNoCmd
 
@@ -107,14 +107,17 @@ update msg model =
             model |> withCmd (parse model.send)
 
         Process value ->
-            model |> withCmd (webSocketClientToJs value)
+            { model
+                | log = ("send: " ++ JE.encode 0 value) :: model.log
+            }
+                |> withCmd (webSocketClientToJs value)
 
         Receive value ->
             let
-                receive =
-                    JE.encode 0 value :: model.receive
+                log =
+                    ("recv: " ++ JE.encode 0 value) :: model.log
             in
-            { model | receive = receive } |> withNoCmd
+            { model | log = log } |> withNoCmd
 
 
 
@@ -156,7 +159,7 @@ view model =
             ]
         , p [] <|
             List.concat
-                [ [ b "Received:", br ]
-                , List.intersperse br (List.map text model.receive)
+                [ [ b "Log:", br ]
+                , List.intersperse br (List.map text model.log)
                 ]
         ]
