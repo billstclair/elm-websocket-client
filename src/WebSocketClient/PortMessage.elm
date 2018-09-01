@@ -84,7 +84,12 @@ type PortMessage
     | PIMessageReceived { key : String, message : String }
     | PIClosed { key : String, code : String, reason : String, wasClean : Bool }
     | PIBytesQueued { key : String, bufferedAmount : Int }
-    | PIError { key : Maybe String, code : String, description : String }
+    | PIError
+        { key : Maybe String
+        , code : String
+        , description : String
+        , name : Maybe String
+        }
 
 
 toRawPortMessage : PortMessage -> RawPortMessage
@@ -184,6 +189,7 @@ fromRawPortMessage { tag, args } =
                         { key = Dict.get "key" args
                         , code = code
                         , description = description
+                        , name = Dict.get "name" args
                         }
 
                 _ ->

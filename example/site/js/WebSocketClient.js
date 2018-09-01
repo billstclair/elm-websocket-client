@@ -14,11 +14,11 @@
 // It is an object with a `subscribe` property, a function, called as:
 //
 //   WebSocketClientJS.subscribe(app,
-//                               [webSocketClientToJsName],
-//                               [jsToWebSocketClientName]);
+//                               [webSocketClientCmdName],
+//                               [webSocketClientSubName]);
 //
-// webSocketClientToJsName defaults to 'webSocketClientToJs'.
-// jsToWebSocketClientName defaults to 'jsToWebSocketClient'.
+// webSocketClientCmdName defaults to 'webSocketClientCmd'.
+// webSocketClientSubName defaults to 'webSocketClientCmd'.
 // They name Elm ports.
 
 var WebSocketClient = {};
@@ -29,17 +29,17 @@ WebSocketClient.subscribe = subscribe;
 
 var returnPort;
 
-function subscribe(app, webSocketClientToJsName, jsToWebSocketClientName) {
-  if (!webSocketClientToJsName) {
-    webSocketClientToJsName = 'webSocketClientToJs';
+function subscribe(app, webSocketClientCmdName, webSocketClientSubName) {
+  if (!webSocketClientCmdName) {
+    webSocketClientCmdName = 'webSocketClientCmd';
   }
-  if (!jsToWebSocketClientName) {
-    jsToWebSocketClientName = 'jsToWebSocketClient';
+  if (!webSocketClientSubName) {
+    webSocketClientSubName = 'webSocketClientSub';
   }
 
   ports = app.ports;
-  returnPort = ports[jsToWebSocketClientName];
-  var cmdPort = ports[webSocketClientToJsName];
+  returnPort = ports[webSocketClientSubName];
+  var cmdPort = ports[webSocketClientCmdName];
 
   cmdPort.subscribe(function(command) {
     var returnValue = commandDispatch(command);
@@ -51,8 +51,12 @@ function objectReturn(tag, args) {
   return { tag: tag, args : args };
 }
 
-function keyedErrorReturn(key, code, description) {
-  return objectReturn("error", { key: key, code: code, description: description });
+function keyedErrorReturn(key, code, description, name) {
+  var message = { key: key, code: code, description: description };
+  if (name) {
+    message.name = name
+  }
+  return objectReturn("error", message);
 }
 function errorReturn(code, description) {
   return objectReturn("error", { code: code, description: description });
@@ -104,10 +108,12 @@ function doOpen(args) {
     sockets[key] = socket;
   }
   catch(err) {
-    // May need to encode err.name in the error.
-    // The old code returned BadSecurity if it was 'SecurityError'
+    // The old code returned BadSecurity if err.name was 'SecurityError'
     // or BadArgs otherwise.
-    return errorReturn('openfailed', "Can't create socket for URL: " + url)
+    return errorReturn('openfailed',
+                       "Can't create socket for URL: " + url,
+                       err.name
+                      )
   }
   socket.addEventListener("open", function(event) {
     console.log("Socket connected for URL: " + url);
@@ -148,7 +154,8 @@ function doSend(args) {
   try {
 	socket.send(message);
   } catch(err) {
-    return keyedErrorReturn(key, 'badsend', 'Send error')
+    // The old code ignored err.name
+    return keyedErrorReturn(key, 'badsend', 'Send error', err.name)
   }
   return null;
 } 
@@ -165,10 +172,9 @@ function doClose(args) {
     delete sockets[key];
     socket.close();
   } catch(err) {
-    // May need to return err.name somehow.
-    // The old code returned BadReason if it was 'SyntaxError'
+    // The old code returned BadReason if err.name was 'SyntaxError'
     // or BadCode otherwise
-    return keyedErrorReturn(key, 'badclose', 'Close error')
+    return keyedErrorReturn(key, 'badclose', 'Close error', err.name)
   }
 } 
 

@@ -24,10 +24,10 @@ main =
         }
 
 
-port webSocketClientToJs : Value -> Cmd msg
+port webSocketClientCmd : Value -> Cmd msg
 
 
-port jsToWebSocketClient : (Value -> msg) -> Sub msg
+port webSocketClientSub : (Value -> msg) -> Sub msg
 
 
 port parse : String -> Cmd msg
@@ -39,7 +39,7 @@ port parseReturn : (Value -> msg) -> Sub msg
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ jsToWebSocketClient Receive
+        [ webSocketClientSub Receive
         , parseReturn Process
         ]
 
@@ -123,7 +123,7 @@ update msg model =
             { model
                 | log = ("send: " ++ JE.encode 0 value) :: model.log
             }
-                |> withCmd (webSocketClientToJs value)
+                |> withCmd (webSocketClientCmd value)
 
         Receive value ->
             let

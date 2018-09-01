@@ -226,11 +226,26 @@ fromRawData =
                 [ ( "key", "somekey" )
                 , ( "code", "green" )
                 , ( "description", "You rock!" )
+                , ( "name", "SecurityError" )
                 ]
       , PIError
             { key = Just "somekey"
             , code = "green"
             , description = "You rock!"
+            , name = Just "SecurityError"
+            }
+      )
+    , ( RawPortMessage "error" <|
+            Dict.fromList
+                [ ( "key", "somekey" )
+                , ( "code", "orange" )
+                , ( "description", "Hit me with your best shot" )
+                ]
+      , PIError
+            { key = Just "somekey"
+            , code = "orange"
+            , description = "Hit me with your best shot"
+            , name = Nothing
             }
       )
     , ( RawPortMessage "error" <|
@@ -242,6 +257,7 @@ fromRawData =
             { key = Nothing
             , code = "green"
             , description = "You rock!"
+            , name = Nothing
             }
       )
     , ( RawPortMessage "error2" <|

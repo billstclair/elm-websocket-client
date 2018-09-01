@@ -35,7 +35,11 @@ The output port is in a `Config` instance inside the `State`.
       | MessageReceived { key : String, message : String }
       | Closed { key : String, code : String, reason : String, wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
-      | Error { key : Maybe String, code : String, description : String }
+      | Error { key : Maybe String
+              , code : String
+              , description : String
+              , name : Maybe String
+              }
 
     -- Call this on receiving a value through the subscription port
     -- Update the stored `State` from the received updated state.
@@ -125,5 +129,6 @@ If an errror happens:
     , args : { key : <string>      # optional
              , code : <string>
              , description : <string>
+             , name : <string>     # err.name, may be null
              }
     }
