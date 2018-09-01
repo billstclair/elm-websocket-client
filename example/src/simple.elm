@@ -8,8 +8,8 @@ port module Main exposing (main)
 
 import Browser
 import Cmd.Extra exposing (withCmd, withNoCmd)
-import Html exposing (Html, button, div, h1, input, p, text)
-import Html.Attributes exposing (size, value)
+import Html exposing (Html, a, button, div, h1, input, p, text)
+import Html.Attributes exposing (href, size, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode as JD
 import Json.Encode as JE exposing (Value)
@@ -88,7 +88,7 @@ bytesQueuedJson =
 
 exampleJsons : List String
 exampleJsons =
-    [ sendJson, closeJson, bytesQueuedJson, openJson ]
+    [ sendJson, bytesQueuedJson, closeJson, openJson ]
 
 
 init : () -> ( Model, Cmd Msg )
@@ -147,6 +147,12 @@ br =
     Html.br [] []
 
 
+sendSample : String -> Html Msg
+sendSample sample =
+    a [ onClick <| UpdateSend sample ]
+        [ text sample ]
+
+
 view : Model -> Html Msg
 view model =
     div []
@@ -163,10 +169,10 @@ view model =
             ]
         , p [] <|
             List.concat
-                [ [ b "Sample messages:"
+                [ [ b "Sample messages (click to copy):"
                   , br
                   ]
-                , List.intersperse br <| List.map text exampleJsons
+                , List.intersperse br <| List.map sendSample exampleJsons
                 ]
         , p [] <|
             List.concat
