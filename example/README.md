@@ -67,7 +67,7 @@ Then you need to set up your `index.html` much as I did in the `site` directory 
 
     // If you use non-standard names for the ports, you need to name them:
     //
-    //   WebSocketClient.subscribe(app, 'webSocketClientToJs', 'jsToWebSocketClient');
+    //   WebSocketClient.subscribe(app, 'webSocketClientCmd', 'webSocketClientSub');
     //
     WebSocketClient.subscribe(app);
         </script>
