@@ -687,6 +687,8 @@ closedCode code =
             UnknownClosure
 
 
+{-| Turn a `ClosedCode` into a `String`, for debugging.
+-}
 closedCodeToString : ClosedCode -> String
 closedCodeToString code =
     case code of
