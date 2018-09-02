@@ -112,6 +112,9 @@ Finally, you have to process the `Response` data that comes back from the `WebSo
             MessageReceivedResponse { key, message } ->
               ...
 
+            -- When I get the buffering and automatic reconnection done,
+            -- you'll be able to ignore the rest of the response.
+            
             -- You shouldn't `send` until you get this.
             -- I'll add queueing soon, but it's not there yet.
             ConnectedResponse { key, description } ->
