@@ -13,7 +13,8 @@
 
 module WebSocketClient exposing
     ( Config, State, Response(..), Error(..)
-    , makeConfig, makeState, process
+    , makeConfig, makeState, getKeyUrl, getConfig, setConfig
+    , process
     , open, keepAlive, send, close
     , openWithKey, keepAliveWithKey, sendWithKey
     , errorToString
@@ -36,7 +37,8 @@ connection once and then keep using. The major benefits of this are:
 
 @docs Config, State, Response, Error
 
-@docs makeConfig, makeState, process
+@docs makeConfig, makeState, getKeyUrl, getConfig, setConfig
+@docs process
 
 @docs open, keepAlive, send, close
 @docs openWithKey, keepAliveWithKey, sendWithKey
@@ -90,15 +92,30 @@ sendWithKey (State state) key url message =
 
     else
         let
-            (Config { sendPort }) =
+            (Config { sendPort, simulator }) =
                 state.config
 
             po =
                 POSend { key = key, message = message }
         in
-        ( State state
-        , CmdResponse <| sendPort (encodePortMessage po)
-        )
+        case simulator of
+            Nothing ->
+                ( State state
+                , CmdResponse <| sendPort (encodePortMessage po)
+                )
+
+            Just transformer ->
+                ( State state
+                , case transformer message of
+                    Just response ->
+                        MessageReceivedResponse
+                            { key = key
+                            , message = response
+                            }
+
+                    _ ->
+                        NoResponse
+                )
 
 
 
@@ -140,22 +157,33 @@ openWithKey (State state) key url =
 
         Nothing ->
             let
-                (Config { sendPort }) =
+                (Config { sendPort, simulator }) =
                     state.config
 
                 po =
                     POOpen { key = key, url = url }
-
-                sockets =
-                    state.connectingSockets
             in
-            ( State
-                { state
-                    | connectingSockets =
-                        Set.insert key sockets
-                }
-            , CmdResponse <| sendPort (encodePortMessage po)
-            )
+            case simulator of
+                Nothing ->
+                    ( State
+                        { state
+                            | connectingSockets =
+                                Set.insert key state.connectingSockets
+                        }
+                    , CmdResponse <| sendPort (encodePortMessage po)
+                    )
+
+                Just _ ->
+                    ( State
+                        { state
+                            | openSockets =
+                                Set.insert key state.openSockets
+                        }
+                    , ConnectedResponse
+                        { key = key
+                        , description = "simulated"
+                        }
+                    )
 
 
 checkUsedSocket : StateRecord msg -> String -> Maybe ( State msg, Response msg )
@@ -195,21 +223,37 @@ close (State state) key =
 
     else
         let
-            (Config { sendPort }) =
+            (Config { sendPort, simulator }) =
                 state.config
 
             po =
                 POClose { key = key, reason = "user request" }
         in
-        ( State
-            { state
-                | openSockets =
-                    Set.remove key openSockets
-                , closingSockets =
-                    Set.insert key closingSockets
-            }
-        , CmdResponse <| sendPort (encodePortMessage po)
-        )
+        case simulator of
+            Nothing ->
+                ( State
+                    { state
+                        | openSockets =
+                            Set.remove key openSockets
+                        , closingSockets =
+                            Set.insert key closingSockets
+                    }
+                , CmdResponse <| sendPort (encodePortMessage po)
+                )
+
+            Just _ ->
+                ( State
+                    { state
+                        | openSockets =
+                            Set.remove key openSockets
+                    }
+                , ClosedResponse
+                    { key = key
+                    , code = NormalClosure
+                    , reason = "simulator"
+                    , wasClean = True
+                    }
+                )
 
 
 {-| Keep a connection alive, but do not report any messages. This is useful
@@ -250,7 +294,7 @@ keepAliveWithKey state key url =
 
 type alias ConfigRecord msg =
     { sendPort : Value -> Cmd msg
-    , simulator : Maybe (String -> String)
+    , simulator : Maybe (String -> Maybe String)
     }
 
 
@@ -281,7 +325,7 @@ makeConfig sendPort =
     Config <| ConfigRecord sendPort Nothing
 
 
-makeSimulatorConfig : (String -> String) -> Config msg
+makeSimulatorConfig : (String -> Maybe String) -> Config msg
 makeSimulatorConfig simulator =
     Config <| ConfigRecord (\_ -> Cmd.none) (Just simulator)
 
@@ -295,6 +339,7 @@ type alias StateRecord msg =
     , openSockets : Set String
     , connectingSockets : Set String
     , closingSockets : Set String
+    , socketUrls : Dict String String
     , queues : QueuesDict
     }
 
@@ -315,7 +360,28 @@ The `Config` arg is the result of `makeConfig` or `makeSimulatorConfig`.
 -}
 makeState : Config msg -> State msg
 makeState config =
-    State <| StateRecord config Set.empty Set.empty Set.empty Dict.empty
+    State <| StateRecord config Set.empty Set.empty Set.empty Dict.empty Dict.empty
+
+
+{-| Get the URL for a key.
+-}
+getKeyUrl : String -> State msg -> Maybe String
+getKeyUrl key (State state) =
+    Dict.get key state.socketUrls
+
+
+{-| Get a State's Config
+-}
+getConfig : State msg -> Config msg
+getConfig (State state) =
+    state.config
+
+
+{-| Get a State's Config
+-}
+setConfig : Config msg -> State msg -> State msg
+setConfig config (State state) =
+    State { state | config = config }
 
 
 {-| A response that your code must process to update your model.
@@ -340,7 +406,7 @@ type Response msg
     | MessageReceivedResponse { key : String, message : String }
     | ClosedResponse
         { key : String
-        , code : String
+        , code : ClosedCode
         , reason : String
         , wasClean : Bool
         }
@@ -363,7 +429,7 @@ type Error
     | UnexpectedMessageError { key : String, message : String }
     | UnexpectedClosedError
         { key : String
-        , code : String
+        , code : ClosedCode
         , reason : String
         , wasClean : Bool
         }
@@ -418,7 +484,7 @@ errorToString theError =
             "UnexpectedClosedError { key = \""
                 ++ key
                 ++ "\", code = \""
-                ++ code
+                ++ closedCodeToString code
                 ++ "\", reason = \""
                 ++ reason
                 ++ "\", \""
@@ -519,11 +585,19 @@ process (State state) value =
                 PIClosed { key, code, reason, wasClean } ->
                     if not (Set.member key closingSockets) then
                         -- TODO: reopen or close the connection
-                        ( State state
+                        ( State
+                            { state
+                                | connectingSockets =
+                                    Set.remove key connectingSockets
+                                , openSockets =
+                                    Set.remove key openSockets
+                                , closingSockets =
+                                    Set.remove key closingSockets
+                            }
                         , ErrorResponse <|
                             UnexpectedClosedError
                                 { key = key
-                                , code = code
+                                , code = closedCode code
                                 , reason = reason
                                 , wasClean = wasClean
                                 }
@@ -537,7 +611,7 @@ process (State state) value =
                             }
                         , ClosedResponse
                             { key = key
-                            , code = code
+                            , code = closedCode code
                             , reason = reason
                             , wasClean = wasClean
                             }
@@ -563,6 +637,110 @@ process (State state) value =
                         InvalidMessageError
                             { json = JE.encode 0 value }
                     )
+
+
+{-| <https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent>
+-}
+type ClosedCode
+    = NormalClosure --1000
+    | GoingAwayClosure --1002
+    | ProtocolErrorClosure --1002
+    | UnsupprtedDataClosure --1003
+    | NoStatusRecvdClosure --1005
+    | AbnormalClosure --1006
+    | InvalidFramePayloadDataClosure --1007
+    | PolicyViolationClosure --1008
+    | MessageTooBigClosure --1009
+    | MissingExtensionClosure --1010
+    | InternalErrorClosure --1011
+    | ServiceRestartClosure --1012
+    | TryAgainLaterClosure --1013
+    | BadGatewayClosure --1014
+    | TLSHandshakeClosure --1015
+    | UnknownClosure
+
+
+closureDict : Dict Int ClosedCode
+closureDict =
+    Dict.fromList
+        [ ( 1000, NormalClosure )
+        , ( 1001, GoingAwayClosure )
+        , ( 1002, ProtocolErrorClosure )
+        , ( 1003, UnsupprtedDataClosure )
+        , ( 1005, NoStatusRecvdClosure )
+        , ( 1006, AbnormalClosure )
+        , ( 1007, InvalidFramePayloadDataClosure )
+        , ( 1008, PolicyViolationClosure )
+        , ( 1009, MessageTooBigClosure )
+        , ( 1010, MissingExtensionClosure )
+        , ( 1011, InternalErrorClosure )
+        , ( 1012, ServiceRestartClosure )
+        , ( 1013, TryAgainLaterClosure )
+        , ( 1014, BadGatewayClosure )
+        , ( 1015, TLSHandshakeClosure )
+        ]
+
+
+closedCode : Int -> ClosedCode
+closedCode code =
+    case Dict.get code closureDict of
+        Just res ->
+            res
+
+        Nothing ->
+            UnknownClosure
+
+
+closedCodeToString : ClosedCode -> String
+closedCodeToString code =
+    case code of
+        NormalClosure ->
+            "NormalClosure"
+
+        GoingAwayClosure ->
+            "GoingAwayClosure"
+
+        ProtocolErrorClosure ->
+            "ProtocolErrorClosure"
+
+        UnsupprtedDataClosure ->
+            "UnsupprtedDataClosure"
+
+        NoStatusRecvdClosure ->
+            "NoStatusRecvdClosure"
+
+        AbnormalClosure ->
+            "AbnormalClosure"
+
+        InvalidFramePayloadDataClosure ->
+            "InvalidFramePayloadDataClosure"
+
+        PolicyViolationClosure ->
+            "PolicyViolationClosure"
+
+        MessageTooBigClosure ->
+            "MessageTooBigClosure"
+
+        MissingExtensionClosure ->
+            "MissingExtensionClosure"
+
+        InternalErrorClosure ->
+            "InternalErrorClosure"
+
+        ServiceRestartClosure ->
+            "ServiceRestartClosure"
+
+        TryAgainLaterClosure ->
+            "TryAgainLaterClosure"
+
+        BadGatewayClosure ->
+            "BadGatewayClosure"
+
+        TLSHandshakeClosure ->
+            "TLSHandshakeClosure"
+
+        UnknownClosure ->
+            "UnknownClosure"
 
 
 

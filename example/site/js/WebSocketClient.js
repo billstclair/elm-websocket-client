@@ -130,6 +130,7 @@ function doOpen(args) {
   });
   socket.addEventListener("close", function(event) {
 	console.log("'" + key + "' closed");
+    delete sockets[key];        // for open errors
     returnPort.send(objectReturn("closed",
                                  { key: key,
                                    code: "" + event.code,

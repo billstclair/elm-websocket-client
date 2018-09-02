@@ -82,7 +82,7 @@ type PortMessage
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
-    | PIClosed { key : String, code : String, reason : String, wasClean : Bool }
+    | PIClosed { key : String, code : Int, reason : String, wasClean : Bool }
     | PIBytesQueued { key : String, bufferedAmount : Int }
     | PIError
         { key : Maybe String
@@ -158,7 +158,7 @@ fromRawPortMessage { tag, args } =
                 Just [ key, code, reason, wasClean ] ->
                     PIClosed
                         { key = key
-                        , code = code
+                        , code = Maybe.withDefault -1 <| String.toInt code
                         , reason = reason
                         , wasClean = wasClean == "true"
                         }
