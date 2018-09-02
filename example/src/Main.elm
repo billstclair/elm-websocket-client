@@ -1,25 +1,6 @@
 port module Main exposing (main)
 
-{-| WebSocket example
-
-Does not build if `WebSocket.listen` or `WebSocket.send` are called.
-DOES build and run if you replace those calls with `Sub.none` and
-`Cmd.none`, respectively (as in the commented lines above them).
-
-    `elm make src/Main.elm`
-
-Gets the "Map.!: given key is not an element in the map" error, as in
-<https://github.com/elm/compiler/issues/1753>.
-
-It sure would be nice to have a build with profiling, so that I could see a
-full stack backtrace of the error with:
-
-    `elm +RTS -xc make src/Main.elm`
-
-There is a working 0.18 example, including a `Main.elm` that is
-identical to this one, except for 0.19 changes, in
-<https://github.com/billstclair/elm-websocket-example>.
-
+{-| WebSocketClient Example
 -}
 
 import Browser
@@ -91,7 +72,7 @@ type alias Model =
 
 
 init : () -> ( Model, Cmd Msg )
-init flags =
+init _ =
     ( { send = "Hello World!"
       , log = []
       , url = defaultUrl

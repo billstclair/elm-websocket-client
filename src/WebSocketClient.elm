@@ -16,7 +16,7 @@ module WebSocketClient exposing
     , makeConfig, makeState
     , getKeyUrl, getConfig, setConfig
     , open, keepAlive, send, close, process
-    , openWithKey, keepAliveWithKey, sendWithKey
+    , openWithKey, keepAliveWithKey
     , makeSimulatorConfig
     , errorToString, closedCodeToString
     )
@@ -51,7 +51,7 @@ connection once and then keep using. The major benefits of this are:
 ## API
 
 @docs open, keepAlive, send, close, process
-@docs openWithKey, keepAliveWithKey, sendWithKey
+@docs openWithKey, keepAliveWithKey
 
 
 ## Simulator
@@ -86,25 +86,11 @@ import WebSocketClient.PortMessage
 
     send state "ws://echo.websocket.org" "Hello!"
 
-**Note:** It is important that you are also subscribed to this address with
-`open` or `keepAlive`. If you are not, the web socket will be created to
-send one message and then closed. Not good!
+You must call `open` or `openWithKey` before calling `send`.
 
 -}
 send : State msg -> String -> String -> ( State msg, Response msg )
-send state url message =
-    sendWithKey state url url message
-
-
-{-| Like `send`, but allows matching a unique key to the connection.
-
-`send` uses the `url` as the `key`.
-
-    sendWithKey state key url message
-
--}
-sendWithKey : State msg -> String -> String -> String -> ( State msg, Response msg )
-sendWithKey (State state) key url message =
+send (State state) key message =
     if not (Set.member key state.openSockets) then
         ( State state, ErrorResponse <| SocketNotOpenError key )
 
