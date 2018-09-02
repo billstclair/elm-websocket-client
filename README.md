@@ -8,7 +8,7 @@ Elm 0.19 shipped with no WebSocket client. It used to be in [elm-lang/websocket]
 
 The package as shipped will work with a pure Elm WebSocket simulator, which transforms messages you send with a function you provide and sends the result back immediately. See the [example](https://github.com/billstclair/elm-websocket-client/tree/master/example) README for instructions on setting up ports to make it use JavaScript code to do real WebSocket communication.
 
-The example is live at [billstclair.github.io/elm-websocket-client](https://billstclair.github.io/websocket-client/).
+The example is live at [billstclair.github.io/elm-websocket-client](https://billstclair.github.io/elm-websocket-client/).
 
 ## Keys and URLs
 
