@@ -116,7 +116,7 @@ function doOpen(args) {
                       )
   }
   socket.addEventListener("open", function(event) {
-    console.log("Socket connected for URL: " + url);
+    //console.log("Socket connected for URL: " + url);
     returnPort.send(objectReturn("connected",
                                  { key: key,
                                    description: "Socket connected for URL: " + url
@@ -124,12 +124,12 @@ function doOpen(args) {
   });
   socket.addEventListener("message", function(event) {
     var message = event.data;
-    console.log("Received for '" + key + "': " + message);
+    //console.log("Received for '" + key + "': " + message);
     returnPort.send(objectReturn("messageReceived",
                                  { key: key, message: message }));
   });
   socket.addEventListener("close", function(event) {
-	console.log("'" + key + "' closed");
+	//console.log("'" + key + "' closed");
     delete sockets[key];        // for open errors
     returnPort.send(objectReturn("closed",
                                  { key: key,

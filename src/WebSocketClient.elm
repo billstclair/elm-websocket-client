@@ -12,12 +12,13 @@
 
 
 module WebSocketClient exposing
-    ( Config, State, Response(..), Error(..)
-    , makeConfig, makeState, getKeyUrl, getConfig, setConfig
-    , process
-    , open, keepAlive, send, close
+    ( Config, State, Response(..), Error(..), ClosedCode(..)
+    , makeConfig, makeState
+    , getKeyUrl, getConfig, setConfig
+    , open, keepAlive, send, close, process
     , openWithKey, keepAliveWithKey, sendWithKey
-    , errorToString
+    , makeSimulatorConfig
+    , errorToString, closedCodeToString
     )
 
 {-| Web sockets make it cheaper to talk to your servers.
@@ -35,15 +36,32 @@ connection once and then keep using. The major benefits of this are:
 
 # Web Sockets
 
-@docs Config, State, Response, Error
 
-@docs makeConfig, makeState, getKeyUrl, getConfig, setConfig
-@docs process
+## Types
 
-@docs open, keepAlive, send, close
+@docs Config, State, Response, Error, ClosedCode
+
+
+## State
+
+@docs makeConfig, makeState
+@docs getKeyUrl, getConfig, setConfig
+
+
+## API
+
+@docs open, keepAlive, send, close, process
 @docs openWithKey, keepAliveWithKey, sendWithKey
 
-@docs errorToString
+
+## Simulator
+
+@docs makeSimulatorConfig
+
+
+## Printing errors
+
+@docs errorToString, closedCodeToString
 
 -}
 
@@ -317,7 +335,8 @@ Where `sendPort` is your output (`Cmd`) port.
 
 Your input (`Sub`) port should wrap a `Json.Encode.Value` with a message,
 and when your `update` function gets that message, it should pass it to
-`process`.
+`process`, and then store the returned `State` in your model, and handle
+the returned `Response`.
 
 -}
 makeConfig : (Value -> Cmd msg) -> Config msg
@@ -325,6 +344,12 @@ makeConfig sendPort =
     Config <| ConfigRecord sendPort Nothing
 
 
+{-| Make a `Config` that enables running your code in `elm reactor`.
+
+The arg is a server simulator, which translates a message sent with `send`
+to a response.
+
+-}
 makeSimulatorConfig : (String -> Maybe String) -> Config msg
 makeSimulatorConfig simulator =
     Config <| ConfigRecord (\_ -> Cmd.none) (Just simulator)
@@ -427,7 +452,7 @@ type Error
     | PortDecodeError { error : String }
     | UnexpectedConnectedError { key : String, description : String }
     | UnexpectedMessageError { key : String, message : String }
-    | UnexpectedClosedError
+    | UnexpectedCloseError
         { key : String
         , code : ClosedCode
         , reason : String
@@ -480,8 +505,8 @@ errorToString theError =
                 ++ message
                 ++ "\" }"
 
-        UnexpectedClosedError { key, code, reason, wasClean } ->
-            "UnexpectedClosedError { key = \""
+        UnexpectedCloseError { key, code, reason, wasClean } ->
+            "UnexpectedCloseError { key = \""
                 ++ key
                 ++ "\", code = \""
                 ++ closedCodeToString code
@@ -595,7 +620,7 @@ process (State state) value =
                                     Set.remove key closingSockets
                             }
                         , ErrorResponse <|
-                            UnexpectedClosedError
+                            UnexpectedCloseError
                                 { key = key
                                 , code = closedCode code
                                 , reason = reason
@@ -695,52 +720,52 @@ closedCodeToString : ClosedCode -> String
 closedCodeToString code =
     case code of
         NormalClosure ->
-            "NormalClosure"
+            "Normal"
 
         GoingAwayClosure ->
-            "GoingAwayClosure"
+            "GoingAway"
 
         ProtocolErrorClosure ->
-            "ProtocolErrorClosure"
+            "ProtocolError"
 
         UnsupprtedDataClosure ->
-            "UnsupprtedDataClosure"
+            "UnsupprtedData"
 
         NoStatusRecvdClosure ->
-            "NoStatusRecvdClosure"
+            "NoStatusRecvd"
 
         AbnormalClosure ->
-            "AbnormalClosure"
+            "Abnormal"
 
         InvalidFramePayloadDataClosure ->
-            "InvalidFramePayloadDataClosure"
+            "InvalidFramePayloadData"
 
         PolicyViolationClosure ->
-            "PolicyViolationClosure"
+            "PolicyViolation"
 
         MessageTooBigClosure ->
-            "MessageTooBigClosure"
+            "MessageTooBig"
 
         MissingExtensionClosure ->
-            "MissingExtensionClosure"
+            "MissingExtension"
 
         InternalErrorClosure ->
-            "InternalErrorClosure"
+            "InternalError"
 
         ServiceRestartClosure ->
-            "ServiceRestartClosure"
+            "ServiceRestart"
 
         TryAgainLaterClosure ->
-            "TryAgainLaterClosure"
+            "TryAgainLater"
 
         BadGatewayClosure ->
-            "BadGatewayClosure"
+            "BadGateway"
 
         TLSHandshakeClosure ->
-            "TLSHandshakeClosure"
+            "TLSHandshake"
 
         UnknownClosure ->
-            "UnknownClosure"
+            "UnknownClosureCode"
 
 
 
