@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Build the example, copy it to my billstclair.github.io project,
+# commit, and push to GitHub.
+# This won't be very useful to anybody but me.
+
+elm make src/Main.elm --output site/index.js
+rsync -av site/ ~/elm/billstclair.github.io/elm-websocket-client/
+cd ~/elm/billstclair.github.io/elm-websocket-client
+git commit -am "Update elm-websocket-client example."
+git push
+

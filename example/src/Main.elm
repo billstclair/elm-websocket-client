@@ -23,8 +23,8 @@ identical to this one, except for 0.19 changes, in
 -}
 
 import Browser
-import Html exposing (Html, button, div, h1, input, p, span, text)
-import Html.Attributes exposing (disabled, size, value)
+import Html exposing (Html, a, button, div, h1, input, p, span, text)
+import Html.Attributes exposing (disabled, href, size, style, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Encode exposing (Value)
 import WebSocketClient
@@ -192,46 +192,34 @@ processResponse model ( state, response ) =
         CmdResponse cmd ->
             ( mdl, cmd )
 
-        ConnectedResponse { key, description } ->
-            ( { mdl | log = "Connected" :: mdl.log }
-            , Cmd.none
-            )
-
         MessageReceivedResponse { message } ->
             ( { mdl | log = ("Received \"" ++ message ++ "\"") :: mdl.log }
             , Cmd.none
             )
 
-        ClosedResponse { code, wasClean } ->
+        ConnectedResponse { key, description } ->
+            ( { mdl | log = "Connected" :: mdl.log }
+            , Cmd.none
+            )
+
+        ClosedResponse { code, wasClean, expected } ->
             ( { mdl
                 | config = Nothing
                 , log =
-                    ("Closed, " ++ closedString code wasClean)
+                    ("Closed, " ++ closedString code wasClean expected)
                         :: mdl.log
               }
             , Cmd.none
             )
 
         ErrorResponse error ->
-            case error of
-                UnexpectedCloseError { code, wasClean } ->
-                    ( { mdl
-                        | config = Nothing
-                        , log =
-                            ("Unexpected close, " ++ closedString code wasClean)
-                                :: mdl.log
-                      }
-                    , Cmd.none
-                    )
-
-                _ ->
-                    ( { mdl | log = errorToString error :: model.log }
-                    , Cmd.none
-                    )
+            ( { mdl | log = errorToString error :: model.log }
+            , Cmd.none
+            )
 
 
-closedString : ClosedCode -> Bool -> String
-closedString code wasClean =
+closedString : ClosedCode -> Bool -> Bool -> String
+closedString code wasClean expected =
     "code: "
         ++ closedCodeToString code
         ++ ", "
@@ -240,6 +228,13 @@ closedString code wasClean =
 
             else
                 "not clean"
+           )
+        ++ ", "
+        ++ (if expected then
+                "expected"
+
+            else
+                "NOT expected"
            )
 
 
@@ -268,7 +263,13 @@ view model =
         isConnected =
             model.config /= Nothing
     in
-    div []
+    div
+        [ style "width" "40em"
+        , style "margin" "auto"
+        , style "margin-top" "1em"
+        , style "padding" "1em"
+        , style "border" "solid"
+        ]
         [ h1 [] [ text "WebSocketClient Example" ]
         , p []
             [ input
@@ -316,9 +317,22 @@ view model =
                 ]
         , div []
             [ b "Instructions:"
-            , docp "Fill in the 'url' and click 'Connect' to connect to a real server."
-            , docp "Click 'Simulate' to connect to a simulated echo server."
+            , docp <|
+                "Fill in the 'url' and click 'Connect' to connect to a real server."
+                    ++ " This will only work if you've connected the port JavaScript code."
+            , docp <|
+                "Click 'Simulate' to connect to a simulated echo server."
+                    ++ " This will work in 'elm reactor'."
             , docp "Fill in the text and click 'Send' to send a message."
             , docp "Click 'Close' to close the connection."
+            ]
+        , p []
+            [ b "Package: "
+            , a [ href "https://package.elm-lang.org/packages/billstclair/elm-websocket-client/latest" ]
+                [ text "billstclair/elm-websocket-client" ]
+            , br
+            , b "GitHub: "
+            , a [ href "https://github.com/billstclair/elm-websocket-client" ]
+                [ text "github.com/billstclair/elm-websocket-client" ]
             ]
         ]

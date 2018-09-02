@@ -270,6 +270,7 @@ close (State state) key =
                     , code = NormalClosure
                     , reason = "simulator"
                     , wasClean = True
+                    , expected = True
                     }
                 )
 
@@ -419,7 +420,7 @@ setConfig config (State state) =
 
 `MessageReceivedResponse` is a message from one of the connected sockets.
 
-`ClosedReponse` tells you that an earlier call to `close` has completed.
+`ClosedResponse` tells you that an earlier call to `close` has completed. Its `code`, `reason`, and `wasClean` fields are as passed by the JavaScript `WebSocket` interface. Its `expected` field will be `True`, if the response is to a `close` call on your part. It will be `False` if the close was unexpected. Unexpected closes will eventually be handled be trying to reconnect, but that isn't implemented yet.
 
 `ErrorResponse` means that something went wrong. This will eventually have more structure. It is the raw data from the port code now.
 
@@ -434,6 +435,7 @@ type Response msg
         , code : ClosedCode
         , reason : String
         , wasClean : Bool
+        , expected : Bool
         }
     | ErrorResponse Error
 
@@ -452,13 +454,6 @@ type Error
     | PortDecodeError { error : String }
     | UnexpectedConnectedError { key : String, description : String }
     | UnexpectedMessageError { key : String, message : String }
-    | UnexpectedCloseError
-        { key : String
-        , code : ClosedCode
-        , reason : String
-        , wasClean : Bool
-        }
-      -- This will get structure. Now it's just passing the port return back.
     | LowLevelError
         { key : Maybe String
         , code : String
@@ -503,17 +498,6 @@ errorToString theError =
                 ++ key
                 ++ "\", message = \""
                 ++ message
-                ++ "\" }"
-
-        UnexpectedCloseError { key, code, reason, wasClean } ->
-            "UnexpectedCloseError { key = \""
-                ++ key
-                ++ "\", code = \""
-                ++ closedCodeToString code
-                ++ "\", reason = \""
-                ++ reason
-                ++ "\", \""
-                ++ boolToString wasClean
                 ++ "\" }"
 
         LowLevelError { key, code, description, name } ->
@@ -619,13 +603,13 @@ process (State state) value =
                                 , closingSockets =
                                     Set.remove key closingSockets
                             }
-                        , ErrorResponse <|
-                            UnexpectedCloseError
-                                { key = key
-                                , code = closedCode code
-                                , reason = reason
-                                , wasClean = wasClean
-                                }
+                        , ClosedResponse
+                            { key = key
+                            , code = closedCode code
+                            , reason = reason
+                            , wasClean = wasClean
+                            , expected = False
+                            }
                         )
 
                     else
@@ -639,6 +623,7 @@ process (State state) value =
                             , code = closedCode code
                             , reason = reason
                             , wasClean = wasClean
+                            , expected = True
                             }
                         )
 
