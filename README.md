@@ -53,14 +53,31 @@ You need a `Msg` to wrap the subscription port, and you need to subscribe to it:
 
 You need to initialize that state:
 
+    -- A real config that uses your output port
     config : Config Msg
     config =
       WebSocketClient.makeConfig webSocketClientCmd
 
+    -- A simulated config that echoes your output.
+    -- Will work in `elm reactor`.
+    simulatorConfig : Config Msg
+    simulatorConfig =
+      WebSocketClient.makeSimulatorConfig (\string -> Just string)
+      
+    -- In the shipped example, this choice is provided by two buttons.
+    useSimulator : Bool
+    useSimulator =
+      False
+
     init : () -> (Model, Cmd Msg)
     init _ =
       ( { ...
-        , state = WebSocketClient.makeState config
+        , state = WebSocketClient.makeState
+                    (if useSimulator then
+                       simulatorConfig
+                     else
+                       config
+                    )
           ...
         }
       , Cmd.none
