@@ -73,3 +73,13 @@ Then you need to set up your `index.html` much as I did in the `site` directory 
         </script>
       </body>
     </html>
+
+If you want to use a local WebSocket echo server, there is a simple one in the `site` directory. You can start it with:
+
+    cd .../WebSocketClient/example/site
+    node echoserver.js [port]
+    
+Where `port` is an optional port on which to listen, default `8888`.
+
+The local server is especially useful for testing handling of connections that drop unexpectedly.
+

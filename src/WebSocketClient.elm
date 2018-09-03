@@ -303,10 +303,10 @@ keepAliveWithKey state key url =
 
 {-| A custom type with one tag.
 
-The tag encode the version of the port JavaScript code.
-It changes every time that code changes incompatibly, to force
-you to notice that you need to update it, and change your
-`open` and `send` calls accordingly.
+The tag encodes the version of the port JavaScript code.
+It changes every time that code changes incompatibly, to remind
+you that you need to update it, and change your `open`, `openWithKey`,
+and `send` calls accordingly.
 
 -}
 type PortVersion
@@ -593,26 +593,9 @@ process (State state) value =
                         , MessageReceivedResponse { key = key, message = message }
                         )
 
-                PIClosed { key, code, reason, wasClean } ->
+                PIClosed ({ key, code, reason, wasClean } as closeRecord) ->
                     if not (Set.member key closingSockets) then
-                        -- TODO: reopen or close the connection
-                        ( State
-                            { state
-                                | connectingSockets =
-                                    Set.remove key connectingSockets
-                                , openSockets =
-                                    Set.remove key openSockets
-                                , closingSockets =
-                                    Set.remove key closingSockets
-                            }
-                        , ClosedResponse
-                            { key = key
-                            , code = closedCode code
-                            , reason = reason
-                            , wasClean = wasClean
-                            , expected = False
-                            }
-                        )
+                        handleUnexpectedClose state closeRecord
 
                     else
                         ( State
@@ -766,3 +749,25 @@ closedCodeToString code =
 maximumBackoffCount : Int
 maximumBackoffCount =
     10
+
+
+handleUnexpectedClose : StateRecord msg -> { key : String, code : Int, reason : String, wasClean : Bool } -> ( State msg, Response msg )
+handleUnexpectedClose state { key, code, reason, wasClean } =
+    -- TODO: reopen or close the connection
+    ( State
+        { state
+            | connectingSockets =
+                Set.remove key state.connectingSockets
+            , openSockets =
+                Set.remove key state.openSockets
+            , closingSockets =
+                Set.remove key state.closingSockets
+        }
+    , ClosedResponse
+        { key = key
+        , code = closedCode code
+        , reason = reason
+        , wasClean = wasClean
+        , expected = False
+        }
+    )
