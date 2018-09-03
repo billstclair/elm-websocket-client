@@ -26,7 +26,7 @@ First you need declare your top-level file to support ports and you need to defi
     
     import Json.Encode exposing (Value)
     import WebSocketClient exposing
-       ( Config, State, Response(..)
+       ( Config, State, Response(..), PortVersion(..)
        , makeConfig, makeState
        )
 
@@ -79,12 +79,14 @@ You need to handle the `Receive` message in your `update` function:
 
         ...
 
-You need to `open` a port before you call `send` on it, and `close` it when you're done with it, processing the returns, which, except for errors, will be commands to send out of your port:
+You need to `open` a port before you call `send` on it, and `close` it when you're done with it, processing the returns, which, except for errors, will be commands to send out of your port.
 
-    WebSocketClient.open model.state <url>
+Note the `PortVersion2` arg to `open` and `send`. If a new version of the package changes the JavaScript port code incompatibly, the single value of type `PortVersion` will change, so that your code will fail to compile until you change it. This will hopefully remind you to update the `WebSocketClient.js` file with the new version.
+
+    WebSocketClient.open PortVersion2 model.state <url>
       |> processResponse model
 
-    WebSocketClient.send model.state <url> <message>
+    WebSocketClient.send PortVersion2 model.state <url> <message>
       |> processResponse model
 
     WebSocketClient.close model.state <url>

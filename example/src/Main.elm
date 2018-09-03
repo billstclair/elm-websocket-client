@@ -13,6 +13,7 @@ import WebSocketClient
         ( ClosedCode(..)
         , Config
         , Error(..)
+        , PortVersion(..)
         , Response(..)
         , State
         , close
@@ -21,9 +22,7 @@ import WebSocketClient
         , makeConfig
         , makeSimulatorConfig
         , makeState
-        , open
         , process
-        , send
         )
 
 
@@ -101,8 +100,8 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        UpdateSend send ->
-            ( { model | send = send }, Cmd.none )
+        UpdateSend newsend ->
+            ( { model | send = newsend }, Cmd.none )
 
         UpdateUrl url ->
             ( { model | url = url }, Cmd.none )
@@ -145,6 +144,20 @@ update msg model =
                 }
             <|
                 close model.state model.key
+
+
+{-| Factor the port version out of the `open` function.
+-}
+open : State msg -> String -> ( State msg, Response msg )
+open =
+    WebSocketClient.open PortVersion2
+
+
+{-| Factor the port version out of the `send` function.
+-}
+send : State msg -> String -> String -> ( State msg, Response msg )
+send =
+    WebSocketClient.send PortVersion2
 
 
 connect : Model -> Config Msg -> ( Model, Cmd Msg )

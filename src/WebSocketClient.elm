@@ -12,7 +12,7 @@
 
 
 module WebSocketClient exposing
-    ( Config, State, Response(..), Error(..), ClosedCode(..)
+    ( PortVersion(..), Config, State, Response(..), Error(..), ClosedCode(..)
     , makeConfig, makeState
     , getKeyUrl, getConfig, setConfig
     , open, keepAlive, send, close, process
@@ -39,7 +39,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Types
 
-@docs Config, State, Response, Error, ClosedCode
+@docs PortVersion, Config, State, Response, Error, ClosedCode
 
 
 ## State
@@ -84,13 +84,18 @@ import WebSocketClient.PortMessage
 
 {-| Send a message to a particular address. You might say something like this:
 
-    send state "ws://echo.websocket.org" "Hello!"
+    send PortVersion2 state "ws://echo.websocket.org" "Hello!"
 
 You must call `open` or `openWithKey` before calling `send`.
 
+The first arg is a `PortVersion`, to remind you to update your JavaScript
+port code, when it changes incompatibly.
+
+    send PortVersion2 state key message
+
 -}
-send : State msg -> String -> String -> ( State msg, Response msg )
-send (State state) key message =
+send : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
+send _ (State state) key message =
     if not (Set.member key state.openSockets) then
         ( State state, ErrorResponse <| SocketNotOpenError key )
 
@@ -132,29 +137,28 @@ like this:
     type Msg = Echo String | ...
 
     subscriptions model =
-      open "ws://echo.websocket.org" Echo
+      open PortVersion2 "ws://echo.websocket.org" Echo
 
-**Note:** If the connection goes down, the effect manager tries to reconnect
-with an exponential backoff strategy. Any messages you try to `send` while the
-connection is down are queued and will be sent as soon as possible.
+The first arg is a `PortVersion`, to remind you to update your JavaScript
+port code, when it changes incompatibly.
 
-    open state url
+    open PortVersion2 state url
 
 -}
-open : State msg -> String -> ( State msg, Response msg )
-open state url =
-    openWithKey state url url
+open : PortVersion -> State msg -> String -> ( State msg, Response msg )
+open version state url =
+    openWithKey version state url url
 
 
 {-| Like `open`, but allows matching a unique key to the connection.
 
 `open` uses the url as the key.
 
-    openWithKey state key url
+    openWithKey PortVersion2 state key url
 
 -}
-openWithKey : State msg -> String -> String -> ( State msg, Response msg )
-openWithKey (State state) key url =
+openWithKey : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
+openWithKey _ (State state) key url =
     case checkUsedSocket state key of
         Just res ->
             res
@@ -295,6 +299,18 @@ keepAliveWithKey state key url =
 
 
 -- MANAGER
+
+
+{-| A custom type with one tag.
+
+The tag encode the version of the port JavaScript code.
+It changes every time that code changes incompatibly, to force
+you to notice that you need to update it, and change your
+`open` and `send` calls accordingly.
+
+-}
+type PortVersion
+    = PortVersion2
 
 
 type alias ConfigRecord msg =
