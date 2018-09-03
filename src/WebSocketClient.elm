@@ -73,7 +73,8 @@ import Set exposing (Set)
 import Task exposing (Task)
 import WebSocketClient.PortMessage
     exposing
-        ( PIClosedRecord
+        ( Continuation(..)
+        , PIClosedRecord
         , PortMessage(..)
         , decodePortMessage
         , encodePortMessage
@@ -82,23 +83,6 @@ import WebSocketClient.PortMessage
 
 
 -- COMMANDS
-
-
-{-| Send a message to a particular address. You might say something like this:
-
-    send PortVersion2 state "ws://echo.websocket.org" "Hello!"
-
-You must call `open` or `openWithKey` before calling `send`.
-
-The first arg is a `PortVersion`, to remind you to update your JavaScript
-port code, when it changes incompatibly.
-
-    send PortVersion2 state key message
-
--}
-send : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
-send _ (State state) =
-    sendInternal state
 
 
 queueSend : StateRecord msg -> String -> String -> ( State msg, Response msg )
@@ -122,8 +106,20 @@ queueSend state key message =
     )
 
 
-sendInternal : StateRecord msg -> String -> String -> ( State msg, Response msg )
-sendInternal state key message =
+{-| Send a message to a particular address. You might say something like this:
+
+    send PortVersion2 state "ws://echo.websocket.org" "Hello!"
+
+You must call `open` or `openWithKey` before calling `send`.
+
+The first arg is a `PortVersion`, to remind you to update your JavaScript
+port code, when it changes incompatibly.
+
+    send PortVersion2 state key message
+
+-}
+send : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
+send _ (State state) key message =
     if not (Set.member key state.openSockets) then
         if Dict.get key state.socketBackoffs == Nothing then
             -- TODO: This will eventually open, send, close.
@@ -731,22 +727,32 @@ process (State state) value =
                 PIBytesQueued { key, bufferedAmount } ->
                     ( State state, NoResponse )
 
-                PISlept { key } ->
-                    case Dict.get key state.socketUrls of
-                        Just url ->
-                            openWithKeyInternal
-                                (State
-                                    { state
-                                        | openSockets =
-                                            Set.remove key openSockets
-                                        , connectingSockets =
-                                            Set.remove key connectingSockets
-                                    }
-                                )
-                                key
-                                (Debug.log "Reopening" url)
+                PIDelayed { continuation } ->
+                    case continuation of
+                        RetryConnection key ->
+                            case Dict.get key state.socketUrls of
+                                Just url ->
+                                    openWithKeyInternal
+                                        (State
+                                            { state
+                                                | openSockets =
+                                                    Set.remove key openSockets
+                                                , connectingSockets =
+                                                    Set.remove key connectingSockets
+                                            }
+                                        )
+                                        key
+                                        (Debug.log "Reopening" url)
 
-                        Nothing ->
+                                Nothing ->
+                                    unexpectedClose state
+                                        { key = key
+                                        , code = closedCodeNumber AbnormalClosure
+                                        , reason = "Missing URL for reconnect"
+                                        , wasClean = False
+                                        }
+
+                        DrainOutputQueue key ->
                             unexpectedClose state
                                 { key = key
                                 , code = closedCodeNumber AbnormalClosure
@@ -904,6 +910,11 @@ maxBackoff =
     10
 
 
+backoffMillis : Int -> Int
+backoffMillis backoff =
+    10 * (2 ^ backoff)
+
+
 handleUnexpectedClose : StateRecord msg -> PIClosedRecord -> ( State msg, Response msg )
 handleUnexpectedClose state closedRecord =
     let
@@ -939,10 +950,13 @@ handleUnexpectedClose state closedRecord =
 
             Just _ ->
                 let
-                    sleep =
-                        POSleep
-                            { key = key
-                            , backoff = Debug.log "Backoff" backoff
+                    delay =
+                        PODelay
+                            { millis =
+                                backoffMillis <|
+                                    Debug.log "Backoff" backoff
+                            , continuation =
+                                RetryConnection key
                             }
                             |> encodePortMessage
 
@@ -954,7 +968,7 @@ handleUnexpectedClose state closedRecord =
                         | socketBackoffs =
                             Dict.insert key backoff backoffs
                     }
-                , CmdResponse <| sendPort sleep
+                , CmdResponse <| sendPort delay
                 )
 
 

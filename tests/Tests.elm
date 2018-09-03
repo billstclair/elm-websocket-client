@@ -9,7 +9,8 @@ import Maybe exposing (withDefault)
 import Test exposing (..)
 import WebSocketClient.PortMessage as PM
     exposing
-        ( PortMessage(..)
+        ( Continuation(..)
+        , PortMessage(..)
         , RawPortMessage
         , decodePortMessage
         , encodePortMessage
@@ -130,13 +131,31 @@ toRawData =
             Dict.fromList [ ( "key", "anotherkey" ) ]
       , "{\"tag\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
       )
-    , ( POSleep { key = "skeleton", backoff = 5 }
-      , RawPortMessage "sleep" <|
+    , ( PODelay
+            { millis = 20
+            , continuation = RetryConnection "akey"
+            }
+      , RawPortMessage "delay" <|
             Dict.fromList
-                [ ( "key", "skeleton" )
-                , ( "backoff", "5" )
+                [ ( "millis", "20" )
+                , ( "continuation"
+                  , "{\"tag\":\"RetryConnection\",\"key\":\"akey\"}"
+                  )
                 ]
-      , "{\"tag\":\"sleep\",\"args\":{\"backoff\":\"5\",\"key\":\"skeleton\"}}"
+      , "{\"tag\":\"delay\",\"args\":{\"continuation\":\"{\\\"tag\\\":\\\"RetryConnection\\\",\\\"key\\\":\\\"akey\\\"}\",\"millis\":\"20\"}}"
+      )
+    , ( PODelay
+            { millis = 0
+            , continuation = DrainOutputQueue "akey"
+            }
+      , RawPortMessage "delay" <|
+            Dict.fromList
+                [ ( "millis", "0" )
+                , ( "continuation"
+                  , "{\"tag\":\"DrainOutputQueue\",\"key\":\"akey\"}"
+                  )
+                ]
+      , "{\"tag\":\"delay\",\"args\":{\"continuation\":\"{\\\"tag\\\":\\\"DrainOutputQueue\\\",\\\"key\\\":\\\"akey\\\"}\",\"millis\":\"0\"}}"
       )
     ]
 
@@ -229,23 +248,25 @@ fromRawData =
         -- illegal number for bufferedAmount
       , InvalidMessage
       )
-    , ( RawPortMessage "slept" <|
+    , ( RawPortMessage "delayed" <|
             Dict.fromList
-                [ ( "key", "skeleton" )
-                , ( "backoff", "5" )
+                [ ( "continuation"
+                  , "{\"tag\":\"RetryConnection\",\"key\":\"akey\"}"
+                  )
                 ]
-      , PISlept
-            { key = "skeleton"
-            , backoff = 5
+      , PIDelayed
+            { continuation = RetryConnection "akey"
             }
       )
-    , ( RawPortMessage "slept" <|
+    , ( RawPortMessage "delayed" <|
             Dict.fromList
-                [ ( "key", "skeleton" )
-                , ( "backoff", "5 or so" )
+                [ ( "continuation"
+                  , "{\"tag\":\"DrainOutputQueue\",\"key\":\"akey\"}"
+                  )
                 ]
-        -- illegal number for bufferedAmount
-      , InvalidMessage
+      , PIDelayed
+            { continuation = DrainOutputQueue "akey"
+            }
       )
     , ( RawPortMessage "error" <|
             Dict.fromList

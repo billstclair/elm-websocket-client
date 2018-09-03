@@ -28,8 +28,13 @@ The output port is in a `Config` instance inside the `State`.
     bytesQueued : String -> State msg -> (State msg, Cmd msg)
     bytesQueued key state = ...
 
-    sleep : String -> Int -> State msg -> (State msg, Cmd msg)
-    sleep key backoff = ...
+    delay : Int -> Continuation -> State msg -> (State msg, Cmd msg)
+    sleep millis continuation  = ...
+    
+    type Continuation =
+      RetryConnection { key: Int, backoff : Int }
+      DrainOutputQueue { key : Int }
+  
 
 ### Processing Values Received from the Input Port Subscription
 
@@ -38,7 +43,7 @@ The output port is in a `Config` instance inside the `State`.
       | MessageReceived { key : String, message : String }
       | Closed { key : String, code : String, reason : String, wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
-      | Slept { key : String, backoff }
+      | Delayed Continuation
       | Error { key : Maybe String
               , code : String
               , description : String
@@ -88,15 +93,14 @@ Close a socket.
 Request bytes queued:
 
     { tag: "bytesQueued"
-    , args : { key : <string>
-             }
+    , args : { key : <string> }
     }
 
 Request sleep for 10 x 2^backoff milliseconds (`setTimeout` in JS):
 
-    { tag: "sleep"
-    , args : { key : <string>
-             , backoff : <string>
+    { tag: "delay"
+    , args : { millis : <string>
+             , continuation : <string>
              }
     }
 
@@ -137,10 +141,8 @@ Reporting bytes queued:
 
 Sleep done:
 
-    { tag: "slept"
-    , args : { key : <string>
-             , backoff : <string>
-             }
+    { tag: "delayed"
+    , args : { continuation : <string> }
     }
 
 

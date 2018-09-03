@@ -11,7 +11,8 @@
 
 
 module WebSocketClient.PortMessage exposing
-    ( PIClosedRecord
+    ( Continuation(..)
+    , PIClosedRecord
     , PortMessage(..)
     , RawPortMessage
     , decodePortMessage
@@ -68,6 +69,16 @@ decodeValue decoder value =
             Err <| JD.errorToString err
 
 
+decodeString : Decoder a -> String -> Result String a
+decodeString decoder string =
+    case JD.decodeString decoder string of
+        Ok a ->
+            Ok a
+
+        Err err ->
+            Err <| JD.errorToString err
+
+
 decodeRawPortMessage : Value -> Result String RawPortMessage
 decodeRawPortMessage value =
     decodeValue rawPortMessageDecoder value
@@ -77,6 +88,52 @@ type alias PIClosedRecord =
     { key : String, code : Int, reason : String, wasClean : Bool }
 
 
+type Continuation
+    = RetryConnection String
+    | DrainOutputQueue String
+
+
+encodeContinuation : Continuation -> String
+encodeContinuation continuation =
+    JE.encode 0 <|
+        case continuation of
+            RetryConnection key ->
+                JE.object
+                    [ ( "tag", JE.string "RetryConnection" )
+                    , ( "key", JE.string key )
+                    ]
+
+            DrainOutputQueue key ->
+                JE.object
+                    [ ( "tag", JE.string "DrainOutputQueue" )
+                    , ( "key", JE.string key )
+                    ]
+
+
+decodeContinuation : String -> Result String Continuation
+decodeContinuation json =
+    decodeString continuationDecoder json
+
+
+continuationDecoder : Decoder Continuation
+continuationDecoder =
+    JD.field "tag" JD.string
+        |> JD.andThen
+            (\tag ->
+                case tag of
+                    "RetryConnection" ->
+                        JD.map RetryConnection
+                            (JD.field "key" JD.string)
+
+                    "DrainOutputQueue" ->
+                        JD.map DrainOutputQueue
+                            (JD.field "key" JD.string)
+
+                    _ ->
+                        JD.fail "Unknown Continuation tag"
+            )
+
+
 type PortMessage
     = InvalidMessage
       -- output
@@ -84,13 +141,13 @@ type PortMessage
     | POSend { key : String, message : String }
     | POClose { key : String, reason : String }
     | POBytesQueued { key : String }
-    | POSleep { key : String, backoff : Int }
+    | PODelay { millis : Int, continuation : Continuation }
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
     | PIClosed PIClosedRecord
     | PIBytesQueued { key : String, bufferedAmount : Int }
-    | PISlept { key : String, backoff : Int }
+    | PIDelayed { continuation : Continuation }
     | PIError
         { key : Maybe String
         , code : String
@@ -118,11 +175,11 @@ toRawPortMessage portMessage =
             RawPortMessage "bytesQueued" <|
                 Dict.fromList [ ( "key", key ) ]
 
-        POSleep { key, backoff } ->
-            RawPortMessage "sleep" <|
+        PODelay { millis, continuation } ->
+            RawPortMessage "delay" <|
                 Dict.fromList
-                    [ ( "key", key )
-                    , ( "backoff", String.fromInt backoff )
+                    [ ( "millis", String.fromInt millis )
+                    , ( "continuation", encodeContinuation continuation )
                     ]
 
         _ ->
@@ -196,18 +253,16 @@ fromRawPortMessage { tag, args } =
                 _ ->
                     InvalidMessage
 
-        "slept" ->
-            case getDictElements [ "key", "backoff" ] args of
-                Just [ key, backoffString ] ->
-                    case String.toInt backoffString of
-                        Nothing ->
+        "delayed" ->
+            case getDictElements [ "continuation" ] args of
+                Just [ json ] ->
+                    case decodeContinuation json of
+                        Err _ ->
                             InvalidMessage
 
-                        Just backoff ->
-                            PISlept
-                                { key = key
-                                , backoff = backoff
-                                }
+                        Ok continuation ->
+                            PIDelayed
+                                { continuation = continuation }
 
                 _ ->
                     InvalidMessage

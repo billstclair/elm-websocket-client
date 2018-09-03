@@ -86,7 +86,7 @@ var functions = {
   send: doSend,
   close: doClose,
   bytesQueued: doBytesQueued,
-  sleep: doSleep
+  delay: doDelay
 };
 
 function unimplemented(func, args) {
@@ -192,15 +192,13 @@ function doBytesQueued(args) {
                                }));
 } 
 
-function doSleep(args) {
+function doDelay(args) {
   var key = args.key;
-  var backoff = args.backoff;
-  var millis = 10 * (2**backoff);
+  var millis = args.millis;
   console.log("Sleeping for ", millis, " milliseconds");
   function callback() {
-    returnPort.send(objectReturn("slept",
-                                 { key: key,
-                                   backoff: backoff
+    returnPort.send(objectReturn("delayed",
+                                 { continuation : args.continuation
                                  }));
   }
   setTimeout(callback, millis);
