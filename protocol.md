@@ -28,6 +28,9 @@ The output port is in a `Config` instance inside the `State`.
     bytesQueued : String -> State msg -> (State msg, Cmd msg)
     bytesQueued key state = ...
 
+    sleep : String -> Int -> State msg -> (State msg, Cmd msg)
+    sleep key backoff = ...
+
 ### Processing Values Received from the Input Port Subscription
 
     type Message
@@ -35,6 +38,7 @@ The output port is in a `Config` instance inside the `State`.
       | MessageReceived { key : String, message : String }
       | Closed { key : String, code : String, reason : String, wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
+      | Slept { key : String, backoff }
       | Error { key : Maybe String
               , code : String
               , description : String
@@ -88,6 +92,14 @@ Request bytes queued:
              }
     }
 
+Request sleep for 10 x 2^backoff milliseconds (`setTimeout` in JS):
+
+    { tag: "sleep"
+    , args : { key : <string>
+             , backoff : <string>
+             }
+    }
+
 ### Responses FROM the Port Code
 
 If opening a socket succeeds:
@@ -122,6 +134,15 @@ Reporting bytes queued:
              , bufferedAmount : <integer string>
              }
     }
+
+Sleep done:
+
+    { tag: "slept"
+    , args : { key : <string>
+             , backoff : <string>
+             }
+    }
+
 
 If an errror happens:
 

@@ -79,11 +79,13 @@ type PortMessage
     | POSend { key : String, message : String }
     | POClose { key : String, reason : String }
     | POBytesQueued { key : String }
+    | POSleep { key : String, backoff : Int }
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
     | PIClosed { key : String, code : Int, reason : String, wasClean : Bool }
     | PIBytesQueued { key : String, bufferedAmount : Int }
+    | PISlept { key : String, backoff : Int }
     | PIError
         { key : Maybe String
         , code : String
@@ -110,6 +112,13 @@ toRawPortMessage portMessage =
         POBytesQueued { key } ->
             RawPortMessage "bytesQueued" <|
                 Dict.fromList [ ( "key", key ) ]
+
+        POSleep { key, backoff } ->
+            RawPortMessage "sleep" <|
+                Dict.fromList
+                    [ ( "key", key )
+                    , ( "backoff", String.fromInt backoff )
+                    ]
 
         _ ->
             RawPortMessage "invalid" Dict.empty
@@ -177,6 +186,22 @@ fromRawPortMessage { tag, args } =
                             PIBytesQueued
                                 { key = key
                                 , bufferedAmount = bufferedAmount
+                                }
+
+                _ ->
+                    InvalidMessage
+
+        "slept" ->
+            case getDictElements [ "key", "backoff" ] args of
+                Just [ key, backoffString ] ->
+                    case String.toInt backoffString of
+                        Nothing ->
+                            InvalidMessage
+
+                        Just backoff ->
+                            PISlept
+                                { key = key
+                                , backoff = backoff
                                 }
 
                 _ ->

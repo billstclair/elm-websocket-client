@@ -743,4 +743,10 @@ closedCodeToString code =
 
 
 -- REOPEN LOST CONNECTIONS AUTOMATICALLY
--- May eventually contain some of the functionality in Effects.elm
+
+
+{-| 10 x 1024 milliseconds = 10.2 seconds
+-}
+maximumBackoffCount : Int
+maximumBackoffCount =
+    10

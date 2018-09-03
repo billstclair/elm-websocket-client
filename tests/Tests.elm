@@ -130,6 +130,14 @@ toRawData =
             Dict.fromList [ ( "key", "anotherkey" ) ]
       , "{\"tag\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
       )
+    , ( POSleep { key = "skeleton", backoff = 5 }
+      , RawPortMessage "sleep" <|
+            Dict.fromList
+                [ ( "key", "skeleton" )
+                , ( "backoff", "5" )
+                ]
+      , "{\"tag\":\"sleep\",\"args\":{\"backoff\":\"5\",\"key\":\"skeleton\"}}"
+      )
     ]
 
 
@@ -217,6 +225,24 @@ fromRawData =
             Dict.fromList
                 [ ( "key", "somekey" )
                 , ( "bufferedAmount", "23 skidoo" )
+                ]
+        -- illegal number for bufferedAmount
+      , InvalidMessage
+      )
+    , ( RawPortMessage "slept" <|
+            Dict.fromList
+                [ ( "key", "skeleton" )
+                , ( "backoff", "5" )
+                ]
+      , PISlept
+            { key = "skeleton"
+            , backoff = 5
+            }
+      )
+    , ( RawPortMessage "slept" <|
+            Dict.fromList
+                [ ( "key", "skeleton" )
+                , ( "backoff", "5 or so" )
                 ]
         -- illegal number for bufferedAmount
       , InvalidMessage

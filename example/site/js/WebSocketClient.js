@@ -85,7 +85,8 @@ var functions = {
   open: doOpen,
   send: doSend,
   close: doClose,
-  bytesQueued: doBytesQueued
+  bytesQueued: doBytesQueued,
+  sleep: doSleep
 };
 
 function unimplemented(func, args) {
@@ -189,6 +190,20 @@ function doBytesQueued(args) {
                                { key: key,
                                  bytesQueued: "" + socket.bufferedAmount
                                }));
+} 
+
+function doSleep(args) {
+  var key = args.key;
+  var backoff = args.backoff;
+  var millis = 10 * (2**backoff);
+  console.log("Sleeping for ", millis, " milliseconds");
+  function callback() {
+    returnPort.send(objectReturn("slept",
+                                 { key: key,
+                                   backoff: backoff
+                                 }));
+  }
+  setTimeout(callback, millis);
 } 
 
 })();
