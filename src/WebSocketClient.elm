@@ -67,6 +67,7 @@ connection once and then keep using. The major benefits of this are:
 
 import Dict exposing (Dict)
 import Json.Encode as JE exposing (Value)
+import List.Extra as LE
 import Process
 import Set exposing (Set)
 import Task exposing (Task)
@@ -668,23 +669,12 @@ process (State state) value =
                                 (Debug.log "Reopening" url)
 
                         Nothing ->
-                            ( State
-                                { state
-                                    | openSockets =
-                                        Set.remove key openSockets
-                                    , socketUrls =
-                                        Dict.remove key state.socketUrls
-                                    , socketBackoffs =
-                                        Dict.remove key state.socketBackoffs
-                                }
-                            , ClosedResponse
+                            unexpectedClose state
                                 { key = key
-                                , code = AbnormalClosure
-                                , reason = "Timed out on reconnect"
+                                , code = closedCodeNumber AbnormalClosure
+                                , reason = "Missing URL for reconnect"
                                 , wasClean = False
-                                , expected = False
                                 }
-                            )
 
                 PIError { key, code, description, name } ->
                     ( State state
@@ -723,38 +713,49 @@ type ClosedCode
     | TryAgainLaterClosure --1013
     | BadGatewayClosure --1014
     | TLSHandshakeClosure --1015
+    | TimedOutOnReconnect -- 4000 (available for use by applications)
     | UnknownClosure
+
+
+closurePairs : List ( Int, ClosedCode )
+closurePairs =
+    [ ( 1000, NormalClosure )
+    , ( 1001, GoingAwayClosure )
+    , ( 1002, ProtocolErrorClosure )
+    , ( 1003, UnsupprtedDataClosure )
+    , ( 1005, NoStatusRecvdClosure )
+    , ( 1006, AbnormalClosure )
+    , ( 1007, InvalidFramePayloadDataClosure )
+    , ( 1008, PolicyViolationClosure )
+    , ( 1009, MessageTooBigClosure )
+    , ( 1010, MissingExtensionClosure )
+    , ( 1011, InternalErrorClosure )
+    , ( 1012, ServiceRestartClosure )
+    , ( 1013, TryAgainLaterClosure )
+    , ( 1014, BadGatewayClosure )
+    , ( 1015, TLSHandshakeClosure )
+    , ( 4000, TimedOutOnReconnect )
+    ]
 
 
 closureDict : Dict Int ClosedCode
 closureDict =
-    Dict.fromList
-        [ ( 1000, NormalClosure )
-        , ( 1001, GoingAwayClosure )
-        , ( 1002, ProtocolErrorClosure )
-        , ( 1003, UnsupprtedDataClosure )
-        , ( 1005, NoStatusRecvdClosure )
-        , ( 1006, AbnormalClosure )
-        , ( 1007, InvalidFramePayloadDataClosure )
-        , ( 1008, PolicyViolationClosure )
-        , ( 1009, MessageTooBigClosure )
-        , ( 1010, MissingExtensionClosure )
-        , ( 1011, InternalErrorClosure )
-        , ( 1012, ServiceRestartClosure )
-        , ( 1013, TryAgainLaterClosure )
-        , ( 1014, BadGatewayClosure )
-        , ( 1015, TLSHandshakeClosure )
-        ]
+    Dict.fromList closurePairs
+
+
+closedCodeNumber : ClosedCode -> Int
+closedCodeNumber code =
+    case LE.find (\( _, c ) -> c == code) closurePairs of
+        Just ( int, _ ) ->
+            int
+
+        Nothing ->
+            0
 
 
 closedCode : Int -> ClosedCode
 closedCode code =
-    case Dict.get code closureDict of
-        Just res ->
-            res
-
-        Nothing ->
-            UnknownClosure
+    Maybe.withDefault UnknownClosure <| Dict.get code closureDict
 
 
 {-| Turn a `ClosedCode` into a `String`, for debugging.
@@ -807,6 +808,9 @@ closedCodeToString code =
         TLSHandshakeClosure ->
             "TLSHandshake"
 
+        TimedOutOnReconnect ->
+            "TimedOutOnReconnect"
+
         UnknownClosure ->
             "UnknownClosureCode"
 
@@ -839,7 +843,15 @@ handleUnexpectedClose state closedRecord =
             || (backoff == 1 && (not <| Set.member key state.openSockets))
     then
         -- It was never successfully opened.
-        unexpectedClose state closedRecord
+        unexpectedClose state
+            { closedRecord
+                | code =
+                    if backoff > maxBackoff then
+                        closedCodeNumber TimedOutOnReconnect
+
+                    else
+                        closedRecord.code
+            }
 
     else
         case Dict.get key state.socketUrls of
