@@ -97,9 +97,42 @@ port code, when it changes incompatibly.
 
 -}
 send : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
-send _ (State state) key message =
+send _ (State state) =
+    sendInternal state
+
+
+queueSend : StateRecord msg -> String -> String -> ( State msg, Response msg )
+queueSend state key message =
+    let
+        queues =
+            state.queues
+
+        current =
+            Dict.get key queues
+                |> Maybe.withDefault []
+
+        new =
+            List.append current [ message ]
+    in
+    ( State
+        { state
+            | queues = Dict.insert key new queues
+        }
+    , NoResponse
+    )
+
+
+sendInternal : StateRecord msg -> String -> String -> ( State msg, Response msg )
+sendInternal state key message =
     if not (Set.member key state.openSockets) then
-        ( State state, ErrorResponse <| SocketNotOpenError key )
+        if Dict.get key state.socketBackoffs == Nothing then
+            -- TODO: This will eventually open, send, close.
+            -- For now, though, it's an error.
+            ( State state, ErrorResponse <| SocketNotOpenError key )
+
+        else
+            -- We're attempting to reopen the connection. Queue sends.
+            queueSend state key message
 
     else
         let
@@ -111,9 +144,15 @@ send _ (State state) key message =
         in
         case simulator of
             Nothing ->
-                ( State state
-                , CmdResponse <| sendPort (encodePortMessage po)
-                )
+                if Dict.get key state.queues == Nothing then
+                    -- Normal send through the `Cmd` port.
+                    ( State state
+                    , CmdResponse <| sendPort (encodePortMessage po)
+                    )
+
+                else
+                    -- We're queuing output. Add one more message to the queue.
+                    queueSend state key message
 
             Just transformer ->
                 ( State state
@@ -584,7 +623,6 @@ process (State state) value =
             case pi of
                 PIConnected { key, description } ->
                     if not (Set.member key connectingSockets) then
-                        -- TODO: close the unexpected connection
                         ( State state
                         , ErrorResponse <|
                             UnexpectedConnectedError
@@ -598,23 +636,63 @@ process (State state) value =
 
                             maybeBackoff =
                                 Dict.get key backoffs
-                        in
-                        ( State
-                            { state
-                                | connectingSockets =
-                                    Set.remove key connectingSockets
-                                , openSockets =
-                                    Set.insert key openSockets
-                                , socketBackoffs =
-                                    Dict.remove key backoffs
-                            }
-                        , if maybeBackoff == Nothing then
-                            ConnectedResponse
-                                { key = key, description = description }
 
-                          else
-                            NoResponse
-                        )
+                            newState =
+                                { state
+                                    | connectingSockets =
+                                        Set.remove key connectingSockets
+                                    , openSockets =
+                                        Set.insert key openSockets
+                                    , socketBackoffs =
+                                        Dict.remove key backoffs
+                                }
+
+                            queues =
+                                state.queues
+                        in
+                        if maybeBackoff == Nothing then
+                            ( State newState
+                            , ConnectedResponse
+                                { key = key, description = description }
+                            )
+
+                        else
+                            case Dict.get key queues of
+                                Nothing ->
+                                    ( State newState, NoResponse )
+
+                                Just [] ->
+                                    ( State
+                                        { newState
+                                            | queues = Dict.remove key queues
+                                        }
+                                    , NoResponse
+                                    )
+
+                                Just (message :: tail) ->
+                                    let
+                                        (Config { sendPort }) =
+                                            state.config
+
+                                        po =
+                                            POSend
+                                                { key = key
+                                                , message = message
+                                                }
+                                    in
+                                    ( State
+                                        { newState
+                                            | queues =
+                                                if tail == [] then
+                                                    Dict.remove key queues
+
+                                                else
+                                                    Dict.insert key tail queues
+                                        }
+                                      -- TODO: a Task here must continue sending
+                                    , CmdResponse <|
+                                        sendPort (encodePortMessage po)
+                                    )
 
                 PIMessageReceived { key, message } ->
                     if not (Set.member key openSockets) then
@@ -854,6 +932,7 @@ handleUnexpectedClose state closedRecord =
             }
 
     else
+        -- It WAS successfully opened. Wait for the backoff time, and reopen.
         case Dict.get key state.socketUrls of
             Nothing ->
                 unexpectedClose state closedRecord
