@@ -11,7 +11,8 @@
 
 
 module WebSocketClient.PortMessage exposing
-    ( PortMessage(..)
+    ( PIClosedRecord
+    , PortMessage(..)
     , RawPortMessage
     , decodePortMessage
     , decodeRawPortMessage
@@ -72,6 +73,10 @@ decodeRawPortMessage value =
     decodeValue rawPortMessageDecoder value
 
 
+type alias PIClosedRecord =
+    { key : String, code : Int, reason : String, wasClean : Bool }
+
+
 type PortMessage
     = InvalidMessage
       -- output
@@ -83,7 +88,7 @@ type PortMessage
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
-    | PIClosed { key : String, code : Int, reason : String, wasClean : Bool }
+    | PIClosed PIClosedRecord
     | PIBytesQueued { key : String, bufferedAmount : Int }
     | PISlept { key : String, backoff : Int }
     | PIError

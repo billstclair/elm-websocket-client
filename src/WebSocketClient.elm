@@ -72,7 +72,8 @@ import Set exposing (Set)
 import Task exposing (Task)
 import WebSocketClient.PortMessage
     exposing
-        ( PortMessage(..)
+        ( PIClosedRecord
+        , PortMessage(..)
         , decodePortMessage
         , encodePortMessage
         )
@@ -158,7 +159,12 @@ open version state url =
 
 -}
 openWithKey : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
-openWithKey _ (State state) key url =
+openWithKey _ =
+    openWithKeyInternal
+
+
+openWithKeyInternal : State msg -> String -> String -> ( State msg, Response msg )
+openWithKeyInternal (State state) key url =
     case checkUsedSocket state key of
         Just res ->
             res
@@ -177,6 +183,8 @@ openWithKey _ (State state) key url =
                         { state
                             | connectingSockets =
                                 Set.insert key state.connectingSockets
+                            , socketUrls =
+                                Dict.insert key url state.socketUrls
                         }
                     , CmdResponse <| sendPort (encodePortMessage po)
                     )
@@ -368,6 +376,7 @@ type alias StateRecord msg =
     , connectingSockets : Set String
     , closingSockets : Set String
     , socketUrls : Dict String String
+    , socketBackoffs : Dict String Int
     , queues : QueuesDict
     }
 
@@ -388,7 +397,20 @@ The `Config` arg is the result of `makeConfig` or `makeSimulatorConfig`.
 -}
 makeState : Config msg -> State msg
 makeState config =
-    State <| StateRecord config Set.empty Set.empty Set.empty Dict.empty Dict.empty
+    State <|
+        StateRecord config
+            -- openSockets
+            Set.empty
+            -- connectingSockets
+            Set.empty
+            -- closingSockets
+            Set.empty
+            -- socketUrls
+            Dict.empty
+            -- socketBackoffs
+            Dict.empty
+            -- queues
+            Dict.empty
 
 
 {-| Get the URL for a key.
@@ -569,15 +591,28 @@ process (State state) value =
                         )
 
                     else
+                        let
+                            backoffs =
+                                state.socketBackoffs
+
+                            maybeBackoff =
+                                Dict.get key backoffs
+                        in
                         ( State
                             { state
                                 | connectingSockets =
                                     Set.remove key connectingSockets
                                 , openSockets =
                                     Set.insert key openSockets
+                                , socketBackoffs =
+                                    Dict.remove key backoffs
                             }
-                        , ConnectedResponse
-                            { key = key, description = description }
+                        , if maybeBackoff == Nothing then
+                            ConnectedResponse
+                                { key = key, description = description }
+
+                          else
+                            NoResponse
                         )
 
                 PIMessageReceived { key, message } ->
@@ -593,15 +628,17 @@ process (State state) value =
                         , MessageReceivedResponse { key = key, message = message }
                         )
 
-                PIClosed ({ key, code, reason, wasClean } as closeRecord) ->
+                PIClosed ({ key, code, reason, wasClean } as closedRecord) ->
                     if not (Set.member key closingSockets) then
-                        handleUnexpectedClose state closeRecord
+                        handleUnexpectedClose state closedRecord
 
                     else
                         ( State
                             { state
                                 | closingSockets =
                                     Set.remove key closingSockets
+                                , socketUrls =
+                                    Dict.remove key state.socketUrls
                             }
                         , ClosedResponse
                             { key = key
@@ -614,6 +651,40 @@ process (State state) value =
 
                 PIBytesQueued { key, bufferedAmount } ->
                     ( State state, NoResponse )
+
+                PISlept { key } ->
+                    case Dict.get key state.socketUrls of
+                        Just url ->
+                            openWithKeyInternal
+                                (State
+                                    { state
+                                        | openSockets =
+                                            Set.remove key openSockets
+                                        , connectingSockets =
+                                            Set.remove key connectingSockets
+                                    }
+                                )
+                                key
+                                (Debug.log "Reopening" url)
+
+                        Nothing ->
+                            ( State
+                                { state
+                                    | openSockets =
+                                        Set.remove key openSockets
+                                    , socketUrls =
+                                        Dict.remove key state.socketUrls
+                                    , socketBackoffs =
+                                        Dict.remove key state.socketBackoffs
+                                }
+                            , ClosedResponse
+                                { key = key
+                                , code = AbnormalClosure
+                                , reason = "Timed out on reconnect"
+                                , wasClean = False
+                                , expected = False
+                                }
+                            )
 
                 PIError { key, code, description, name } ->
                     ( State state
@@ -746,14 +817,58 @@ closedCodeToString code =
 
 {-| 10 x 1024 milliseconds = 10.2 seconds
 -}
-maximumBackoffCount : Int
-maximumBackoffCount =
+maxBackoff : Int
+maxBackoff =
     10
 
 
-handleUnexpectedClose : StateRecord msg -> { key : String, code : Int, reason : String, wasClean : Bool } -> ( State msg, Response msg )
-handleUnexpectedClose state { key, code, reason, wasClean } =
-    -- TODO: reopen or close the connection
+handleUnexpectedClose : StateRecord msg -> PIClosedRecord -> ( State msg, Response msg )
+handleUnexpectedClose state closedRecord =
+    let
+        key =
+            closedRecord.key
+
+        backoffs =
+            state.socketBackoffs
+
+        backoff =
+            1 + Maybe.withDefault 0 (Dict.get key backoffs)
+    in
+    if
+        (backoff > maxBackoff)
+            || (backoff == 1 && (not <| Set.member key state.openSockets))
+    then
+        -- It was never successfully opened.
+        unexpectedClose state closedRecord
+
+    else
+        case Dict.get key state.socketUrls of
+            Nothing ->
+                unexpectedClose state closedRecord
+
+            Just _ ->
+                let
+                    sleep =
+                        POSleep
+                            { key = key
+                            , backoff = Debug.log "Backoff" backoff
+                            }
+                            |> encodePortMessage
+
+                    (Config { sendPort }) =
+                        state.config
+                in
+                ( State
+                    { state
+                        | socketBackoffs =
+                            Dict.insert key backoff backoffs
+                    }
+                , CmdResponse <| sendPort sleep
+                )
+
+
+unexpectedClose : StateRecord msg -> PIClosedRecord -> ( State msg, Response msg )
+unexpectedClose state { key, code, reason, wasClean } =
     ( State
         { state
             | connectingSockets =
@@ -762,6 +877,8 @@ handleUnexpectedClose state { key, code, reason, wasClean } =
                 Set.remove key state.openSockets
             , closingSockets =
                 Set.remove key state.closingSockets
+            , socketUrls =
+                Dict.remove key state.socketUrls
         }
     , ClosedResponse
         { key = key
