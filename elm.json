@@ -3,7 +3,7 @@
     "name": "billstclair/elm-websocket-client",
     "summary": "WebSockets for Elm 0.19, using ports.",
     "license": "MIT",
-    "version": "1.0.1",
+    "version": "2.0.0",
     "exposed-modules": [
         "WebSocketClient"
     ],
