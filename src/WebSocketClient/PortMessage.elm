@@ -1,4 +1,4 @@
-----------------------------------------------------------------------
+---------------------------------------------------------------------
 --
 -- PortMessage.elm
 -- Communication through the ports to example/site/js/WebSocketClient.js
@@ -141,13 +141,13 @@ type PortMessage
     | POSend { key : String, message : String }
     | POClose { key : String, reason : String }
     | POBytesQueued { key : String }
-    | PODelay { millis : Int, continuation : Continuation }
+    | PODelay { millis : Int, id : String }
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
     | PIClosed PIClosedRecord
     | PIBytesQueued { key : String, bufferedAmount : Int }
-    | PIDelayed { continuation : Continuation }
+    | PIDelayed { id : String }
     | PIError
         { key : Maybe String
         , code : String
@@ -175,11 +175,11 @@ toRawPortMessage portMessage =
             RawPortMessage "bytesQueued" <|
                 Dict.fromList [ ( "key", key ) ]
 
-        PODelay { millis, continuation } ->
+        PODelay { millis, id } ->
             RawPortMessage "delay" <|
                 Dict.fromList
                     [ ( "millis", String.fromInt millis )
-                    , ( "continuation", encodeContinuation continuation )
+                    , ( "id", id )
                     ]
 
         _ ->
@@ -254,15 +254,9 @@ fromRawPortMessage { tag, args } =
                     InvalidMessage
 
         "delayed" ->
-            case getDictElements [ "continuation" ] args of
-                Just [ json ] ->
-                    case decodeContinuation json of
-                        Err _ ->
-                            InvalidMessage
-
-                        Ok continuation ->
-                            PIDelayed
-                                { continuation = continuation }
+            case getDictElements [ "id" ] args of
+                Just [ id ] ->
+                    PIDelayed { id = id }
 
                 _ ->
                     InvalidMessage

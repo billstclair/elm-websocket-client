@@ -12,15 +12,14 @@
 --
 -- TODO
 --
--- Move the Continuation into a table on the Elm side.
--- Just send a delay identifier to the JS code in `PODelay`.
--- If `PIDelayed` comes back with an unknown identifier, ignore it.
--- Must remove the identifier -> Continuation entry at
--- the appropriate times (connection reestablished, user closes connection).
+-- If `send` happens while in IdlePhase, open, send, close. Or not.
 --
 -- If the connection goes down, don't try to restore it if there
 -- are bytes queued in the JS. The user code will have to recover
 -- in this case.
+--
+-- User-callable bytesQueued,
+-- returns {sendingBytes : Int, queuedCount : Int, queuedBytes : Int}
 --
 
 
@@ -298,7 +297,21 @@ close (State state) key =
     in
     if socketState.phase /= ConnectedPhase then
         -- TODO: cancel the callback if its in OpeningPhase with a backoff
-        ( State state, ErrorResponse <| SocketNotOpenError key )
+        ( State
+            { state
+                | continuations =
+                    case socketState.continuationId of
+                        Nothing ->
+                            state.continuations
+
+                        Just id ->
+                            Dict.remove id state.continuations
+                , socketStates =
+                    Dict.remove key state.socketStates
+            }
+          -- An abnormal close will be sent later
+        , NoResponse
+        )
 
     else
         let
@@ -440,6 +453,18 @@ type alias SocketState =
     { phase : SocketPhase
     , url : String
     , backoff : Int
+    , continuationId : Maybe String
+    }
+
+
+type ContinuationKind
+    = RetryConnection
+    | DrainOutputQueue
+
+
+type alias Continuation =
+    { key : String
+    , kind : ContinuationKind
     }
 
 
@@ -630,6 +655,64 @@ boolToString bool =
         "False"
 
 
+getContinuation : String -> StateRecord msg -> Maybe ( String, ContinuationKind, StateRecord msg )
+getContinuation id state =
+    case Dict.get id state.continuations of
+        Nothing ->
+            Nothing
+
+        Just continuation ->
+            Just
+                ( continuation.key
+                , continuation.kind
+                , { state
+                    | continuations = Dict.remove id state.continuations
+                  }
+                )
+
+
+allocateContinuation : String -> ContinuationKind -> StateRecord msg -> ( String, StateRecord msg )
+allocateContinuation key kind state =
+    let
+        counter =
+            state.continuationCounter + 1
+
+        id =
+            String.fromInt counter
+
+        continuation =
+            { key = key, kind = kind }
+
+        ( continuations, socketState ) =
+            case Dict.get key state.socketStates of
+                Nothing ->
+                    ( state.continuations, getSocketState key state )
+
+                Just sockState ->
+                    case sockState.continuationId of
+                        Nothing ->
+                            ( state.continuations
+                            , { sockState
+                                | continuationId = Just id
+                              }
+                            )
+
+                        Just oldid ->
+                            ( Dict.remove oldid state.continuations
+                            , { sockState
+                                | continuationId = Just id
+                              }
+                            )
+    in
+    ( id
+    , { state
+        | continuationCounter = counter
+        , socketStates = Dict.insert key socketState state.socketStates
+        , continuations = Dict.insert id continuation continuations
+      }
+    )
+
+
 processQueuedMessage : StateRecord msg -> String -> ( State msg, Response msg )
 processQueuedMessage state key =
     let
@@ -660,11 +743,13 @@ processQueuedMessage state key =
                             Debug.log "Dequeuing:" message
                         }
 
+                ( id, state2 ) =
+                    allocateContinuation key DrainOutputQueue state
+
                 podelay =
                     PODelay
                         { millis = 20
-                        , continuation =
-                            DrainOutputQueue key
+                        , id = id
                         }
 
                 cmds =
@@ -674,7 +759,7 @@ processQueuedMessage state key =
                             [ podelay, posend ]
             in
             ( State
-                { state
+                { state2
                     | queues =
                         Dict.insert key tail queues
                 }
@@ -687,6 +772,7 @@ emptySocketState =
     { phase = IdlePhase
     , url = ""
     , backoff = 0
+    , continuationId = Nothing
     }
 
 
@@ -789,42 +875,50 @@ process (State state) value =
                 PIBytesQueued { key, bufferedAmount } ->
                     ( State state, NoResponse )
 
-                PIDelayed { continuation } ->
-                    case continuation of
-                        RetryConnection key ->
-                            let
-                                socketState =
-                                    getSocketState key state
+                PIDelayed { id } ->
+                    case getContinuation id state of
+                        Nothing ->
+                            ( State state, NoResponse )
 
-                                url =
-                                    socketState.url
-                            in
-                            if url /= "" then
-                                openWithKeyInternal
-                                    (State
-                                        { state
-                                            | socketStates =
-                                                Dict.insert key
-                                                    { socketState
-                                                        | phase = IdlePhase
-                                                    }
-                                                    state.socketStates
-                                        }
-                                    )
-                                    key
-                                    url
+                        Just ( key, kind, state2 ) ->
+                            case kind of
+                                DrainOutputQueue ->
+                                    processQueuedMessage state2 key
 
-                            else
-                                -- This shouldn't be possible
-                                unexpectedClose state
-                                    { key = key
-                                    , code = closedCodeNumber AbnormalClosure
-                                    , reason = "Missing URL for reconnect"
-                                    , wasClean = False
-                                    }
+                                RetryConnection ->
+                                    let
+                                        socketState =
+                                            getSocketState key state
 
-                        DrainOutputQueue key ->
-                            processQueuedMessage state key
+                                        url =
+                                            socketState.url
+                                    in
+                                    if url /= "" then
+                                        openWithKeyInternal
+                                            (State
+                                                { state2
+                                                    | socketStates =
+                                                        Dict.insert key
+                                                            { socketState
+                                                                | phase = IdlePhase
+                                                            }
+                                                            state.socketStates
+                                                }
+                                            )
+                                            key
+                                            url
+
+                                    else
+                                        -- This shouldn't be possible
+                                        unexpectedClose state
+                                            { key = key
+                                            , code =
+                                                closedCodeNumber AbnormalClosure
+                                            , reason =
+                                                "Missing URL for reconnect"
+                                            , wasClean =
+                                                False
+                                            }
 
                 PIError { key, code, description, name } ->
                     ( State state
@@ -1017,21 +1111,23 @@ handleUnexpectedClose state closedRecord =
 
     else
         let
+            ( id, state2 ) =
+                allocateContinuation key RetryConnection state
+
             delay =
                 PODelay
                     { millis =
                         backoffMillis <|
                             Debug.log "Backoff" backoff
-                    , continuation =
-                        RetryConnection key
+                    , id = id
                     }
                     |> encodePortMessage
 
             (Config { sendPort }) =
-                state.config
+                state2.config
         in
         ( State
-            { state
+            { state2
                 | socketStates =
                     Dict.insert key
                         { socketState | backoff = backoff }

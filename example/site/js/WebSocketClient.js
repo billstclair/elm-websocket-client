@@ -195,12 +195,9 @@ function doBytesQueued(args) {
 function doDelay(args) {
   var key = args.key;
   var millis = args.millis;
-  console.log("Sleeping for", millis, " milliseconds");
-  console.log("  then:", args.continuation);
+  console.log("Sleeping for", millis, " milliseconds for id: ", args.id);
   function callback() {
-    returnPort.send(objectReturn("delayed",
-                                 { continuation : args.continuation
-                                 }));
+    returnPort.send(objectReturn("delayed", {id: args.id}));
   }
   setTimeout(callback, millis);
 } 

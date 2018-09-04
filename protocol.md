@@ -28,13 +28,9 @@ The output port is in a `Config` instance inside the `State`.
     bytesQueued : String -> State msg -> (State msg, Cmd msg)
     bytesQueued key state = ...
 
-    delay : Int -> Continuation -> State msg -> (State msg, Cmd msg)
-    sleep millis continuation  = ...
-    
-    type Continuation =
-      RetryConnection { key: Int, backoff : Int }
-      DrainOutputQueue { key : Int }
-  
+    delay : Int -> String -> State msg -> (State msg, Cmd msg)
+    sleep millis delayid  = ...
+      
 
 ### Processing Values Received from the Input Port Subscription
 
@@ -43,7 +39,7 @@ The output port is in a `Config` instance inside the `State`.
       | MessageReceived { key : String, message : String }
       | Closed { key : String, code : String, reason : String, wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
-      | Delayed Continuation
+      | Delayed String
       | Error { key : Maybe String
               , code : String
               , description : String
@@ -142,7 +138,7 @@ Reporting bytes queued:
 Sleep done:
 
     { tag: "delayed"
-    , args : { continuation : <string> }
+    , args : { id : <string> }
     }
 
 

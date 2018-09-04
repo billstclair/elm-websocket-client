@@ -133,29 +133,14 @@ toRawData =
       )
     , ( PODelay
             { millis = 20
-            , continuation = RetryConnection "akey"
+            , id = "1"
             }
       , RawPortMessage "delay" <|
             Dict.fromList
                 [ ( "millis", "20" )
-                , ( "continuation"
-                  , "{\"tag\":\"RetryConnection\",\"key\":\"akey\"}"
-                  )
+                , ( "id", "1" )
                 ]
-      , "{\"tag\":\"delay\",\"args\":{\"continuation\":\"{\\\"tag\\\":\\\"RetryConnection\\\",\\\"key\\\":\\\"akey\\\"}\",\"millis\":\"20\"}}"
-      )
-    , ( PODelay
-            { millis = 0
-            , continuation = DrainOutputQueue "akey"
-            }
-      , RawPortMessage "delay" <|
-            Dict.fromList
-                [ ( "millis", "0" )
-                , ( "continuation"
-                  , "{\"tag\":\"DrainOutputQueue\",\"key\":\"akey\"}"
-                  )
-                ]
-      , "{\"tag\":\"delay\",\"args\":{\"continuation\":\"{\\\"tag\\\":\\\"DrainOutputQueue\\\",\\\"key\\\":\\\"akey\\\"}\",\"millis\":\"0\"}}"
+      , "{\"tag\":\"delay\",\"args\":{\"id\":\"1\",\"millis\":\"20\"}}"
       )
     ]
 
@@ -250,23 +235,8 @@ fromRawData =
       )
     , ( RawPortMessage "delayed" <|
             Dict.fromList
-                [ ( "continuation"
-                  , "{\"tag\":\"RetryConnection\",\"key\":\"akey\"}"
-                  )
-                ]
-      , PIDelayed
-            { continuation = RetryConnection "akey"
-            }
-      )
-    , ( RawPortMessage "delayed" <|
-            Dict.fromList
-                [ ( "continuation"
-                  , "{\"tag\":\"DrainOutputQueue\",\"key\":\"akey\"}"
-                  )
-                ]
-      , PIDelayed
-            { continuation = DrainOutputQueue "akey"
-            }
+                [ ( "id", "2" ) ]
+      , PIDelayed { id = "2" }
       )
     , ( RawPortMessage "error" <|
             Dict.fromList

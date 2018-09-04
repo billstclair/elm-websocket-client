@@ -86,17 +86,17 @@ bytesQueuedJson =
         """
 
 
-sleepJson : String
-sleepJson =
+delayJson : String
+delayJson =
     String.trim
         """
-         {"tag": "sleep", "args": {"key": "foo", "backoff": "7"}}
+         {"tag": "delay", "args": {"millis": "500", "id": "23"}}
         """
 
 
 exampleJsons : List String
 exampleJsons =
-    [ sendJson, bytesQueuedJson, closeJson, sleepJson, openJson ]
+    [ sendJson, bytesQueuedJson, closeJson, delayJson, openJson ]
 
 
 init : () -> ( Model, Cmd Msg )
