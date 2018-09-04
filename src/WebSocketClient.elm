@@ -115,6 +115,8 @@ queueSend state key message =
 
 You must call `open` or `openWithKey` before calling `send`.
 
+If you call `send` before the connection has been established, or while it is being reestablished after it was lost, your message will be buffered and sent after the connection has been (re)established.
+
 The first arg is a `PortVersion`, to remind you to update your JavaScript
 port code, if it changes incompatibly.
 
@@ -522,9 +524,9 @@ setConfig config (State state) =
 
 `MessageReceivedResponse` is a message from one of the connected sockets.
 
-`ClosedResponse` tells you that an earlier call to `close` has completed. Its `code`, `reason`, and `wasClean` fields are as passed by the JavaScript `WebSocket` interface. Its `expected` field will be `True`, if the response is to a `close` call on your part. It will be `False` if the close was unexpected. Unexpected closes will eventually be handled be trying to reconnect, but that isn't implemented yet.
+`ClosedResponse` tells you that an earlier call to `close` has completed. Its `code`, `reason`, and `wasClean` fields are as passed by the JavaScript `WebSocket` interface. Its `expected` field will be `True`, if the response is to a `close` call on your part. It will be `False` if the close was unexpected, and reconnection attempts failed for 20 seconds (using exponential backoff between attempts).
 
-`ErrorResponse` means that something went wrong. This will eventually have more structure. It is the raw data from the port code now.
+`ErrorResponse` means that something went wrong. Details in the encapsulated `Error`.
 
 -}
 type Response msg
@@ -931,7 +933,10 @@ process (State state) value =
                     )
 
 
-{-| <https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent>
+{-| This will usually be `NormalClosure`. The rest are standard, except for `UnknownClosure`, which denotes a code that is not defined, and `TimeoutOutOnReconnect`, which means that exponential backoff connection reestablishment attempts timed out.
+
+The standard codes are from <https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent>
+
 -}
 type ClosedCode
     = NormalClosure --1000
