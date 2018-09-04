@@ -1,5 +1,11 @@
 # Changelog for billstclair/elm-websocket-client
 
+## 2.0.2, 9/4/2018
+
+* Remove README paragraph about no automatic reconnect. It was there in 2.0.0.
+
+* Implement `keepAlive`. Can't imagine anyone using it, instead of just ignoring `MessageReceivedResponse`, but it was in the original `WebSocket` module, so I'm keeping it.
+
 ## 2.0.1, 9/4/2018
 
 * Fix some doc strings.
