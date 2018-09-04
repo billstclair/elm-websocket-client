@@ -8,7 +8,7 @@
 * Reorganize socket state representation.
 * Incompatible API changes:
   1. Added `PortVersion` type with a single value: `PortVersion2`
-     I'll bump this when I make incompatible changes to the port JavaScript code, to remind you to update you site with the new `WebSocketClient.js`.
+     I'll bump this when I make incompatible changes to the port JavaScript code, to remind you to update your site with the new `WebSocketClient.js`.
   2. Added `PortVersion` arg to `open`, `openWithKey`, and `send`.
   3. Added missing "o" to `UnsupprtedDataClosure`
   4. Added TimeOutOnReconnect to `ClosedCode`
