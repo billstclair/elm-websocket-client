@@ -9,8 +9,7 @@ import Maybe exposing (withDefault)
 import Test exposing (..)
 import WebSocketClient.PortMessage as PM
     exposing
-        ( Continuation(..)
-        , PortMessage(..)
+        ( PortMessage(..)
         , RawPortMessage
         , decodePortMessage
         , encodePortMessage
@@ -190,12 +189,14 @@ fromRawData =
     , ( RawPortMessage "closed" <|
             Dict.fromList
                 [ ( "key", "somekey" )
+                , ( "bytesQueued", "0" )
                 , ( "code", "1000" )
                 , ( "reason", "because we like you" )
                 , ( "wasClean", "true" )
                 ]
       , PIClosed
             { key = "somekey"
+            , bytesQueued = 0
             , code = 1000 --normal close
             , reason = "because we like you"
             , wasClean = True
@@ -204,12 +205,14 @@ fromRawData =
     , ( RawPortMessage "closed" <|
             Dict.fromList
                 [ ( "key", "somekey" )
+                , ( "bytesQueued", "12" )
                 , ( "code", "1006" )
                 , ( "reason", "I had a bad day" )
                 , ( "wasClean", "false" )
                 ]
       , PIClosed
             { key = "somekey"
+            , bytesQueued = 12
             , code = 1006 --abnormal closure
             , reason = "I had a bad day"
             , wasClean = False

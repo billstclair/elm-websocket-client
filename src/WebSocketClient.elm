@@ -14,13 +14,6 @@
 --
 -- If `send` happens while in IdlePhase, open, send, close. Or not.
 --
--- If the connection goes down, don't try to restore it if there
--- are bytes queued in the JS. The user code will have to recover
--- in this case.
---
--- User-callable bytesQueued,
--- returns {sendingBytes : Int, queuedCount : Int, queuedBytes : Int}
---
 
 
 module WebSocketClient exposing
@@ -84,8 +77,7 @@ import Process
 import Task exposing (Task)
 import WebSocketClient.PortMessage
     exposing
-        ( Continuation(..)
-        , PIClosedRecord
+        ( PIClosedRecord
         , PortMessage(..)
         , decodePortMessage
         , encodePortMessage
@@ -457,17 +449,6 @@ type alias SocketState =
     }
 
 
-type ContinuationKind
-    = RetryConnection
-    | DrainOutputQueue
-
-
-type alias Continuation =
-    { key : String
-    , kind : ContinuationKind
-    }
-
-
 type alias StateRecord msg =
     { config : Config msg
     , socketStates : Dict String SocketState
@@ -653,6 +634,17 @@ boolToString bool =
 
     else
         "False"
+
+
+type ContinuationKind
+    = RetryConnection
+    | DrainOutputQueue
+
+
+type alias Continuation =
+    { key : String
+    , kind : ContinuationKind
+    }
 
 
 getContinuation : String -> StateRecord msg -> Maybe ( String, ContinuationKind, StateRecord msg )
@@ -914,6 +906,7 @@ process (State state) value =
                                             { key = key
                                             , code =
                                                 closedCodeNumber AbnormalClosure
+                                            , bytesQueued = 0
                                             , reason =
                                                 "Missing URL for reconnect"
                                             , wasClean =
@@ -1090,8 +1083,10 @@ handleUnexpectedClose state closedRecord =
     if
         (backoff > maxBackoff)
             || (backoff == 1 && socketState.phase /= ConnectedPhase)
+            || (closedRecord.bytesQueued > 0)
     then
-        -- It was never successfully opened.
+        -- It was never successfully opened
+        -- or it was closed with output left unsent.
         unexpectedClose state
             { closedRecord
                 | code =
@@ -1107,6 +1102,7 @@ handleUnexpectedClose state closedRecord =
     if
         socketState.url == ""
     then
+        -- Shouldn't happen
         unexpectedClose state closedRecord
 
     else

@@ -134,6 +134,7 @@ function doOpen(args) {
     delete sockets[key];        // for open errors
     returnPort.send(objectReturn("closed",
                                  { key: key,
+                                   bytesQueued: "" + socket.bufferedAmount,
                                    code: "" + event.code,
                                    reason: "" + event.reason,
                                    wasClean: event.wasClean ? "true" : "false"

@@ -11,8 +11,7 @@
 
 
 module WebSocketClient.PortMessage exposing
-    ( Continuation(..)
-    , PIClosedRecord
+    ( PIClosedRecord
     , PortMessage(..)
     , RawPortMessage
     , decodePortMessage
@@ -85,53 +84,12 @@ decodeRawPortMessage value =
 
 
 type alias PIClosedRecord =
-    { key : String, code : Int, reason : String, wasClean : Bool }
-
-
-type Continuation
-    = RetryConnection String
-    | DrainOutputQueue String
-
-
-encodeContinuation : Continuation -> String
-encodeContinuation continuation =
-    JE.encode 0 <|
-        case continuation of
-            RetryConnection key ->
-                JE.object
-                    [ ( "tag", JE.string "RetryConnection" )
-                    , ( "key", JE.string key )
-                    ]
-
-            DrainOutputQueue key ->
-                JE.object
-                    [ ( "tag", JE.string "DrainOutputQueue" )
-                    , ( "key", JE.string key )
-                    ]
-
-
-decodeContinuation : String -> Result String Continuation
-decodeContinuation json =
-    decodeString continuationDecoder json
-
-
-continuationDecoder : Decoder Continuation
-continuationDecoder =
-    JD.field "tag" JD.string
-        |> JD.andThen
-            (\tag ->
-                case tag of
-                    "RetryConnection" ->
-                        JD.map RetryConnection
-                            (JD.field "key" JD.string)
-
-                    "DrainOutputQueue" ->
-                        JD.map DrainOutputQueue
-                            (JD.field "key" JD.string)
-
-                    _ ->
-                        JD.fail "Unknown Continuation tag"
-            )
+    { key : String
+    , bytesQueued : Int
+    , code : Int
+    , reason : String
+    , wasClean : Bool
+    }
 
 
 type PortMessage
@@ -225,10 +183,16 @@ fromRawPortMessage { tag, args } =
                     InvalidMessage
 
         "closed" ->
-            case getDictElements [ "key", "code", "reason", "wasClean" ] args of
-                Just [ key, code, reason, wasClean ] ->
+            case
+                getDictElements
+                    [ "key", "bytesQueued", "code", "reason", "wasClean" ]
+                    args
+            of
+                Just [ key, bytesQueued, code, reason, wasClean ] ->
                     PIClosed
                         { key = key
+                        , bytesQueued =
+                            Maybe.withDefault 0 <| String.toInt bytesQueued
                         , code = Maybe.withDefault -1 <| String.toInt code
                         , reason = reason
                         , wasClean = wasClean == "true"

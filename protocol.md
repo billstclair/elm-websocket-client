@@ -37,7 +37,11 @@ The output port is in a `Config` instance inside the `State`.
     type Message
       = Connected { key : String, description : String }
       | MessageReceived { key : String, message : String }
-      | Closed { key : String, code : String, reason : String, wasClean : Bool }
+      | Closed { key : String
+               , bufferedAmount : Int
+               , code : String
+               , reason : String
+               , wasClean : Bool }
       | BytesQueued { key : String, bufferedAmount : Int }
       | Delayed String
       | Error { key : Maybe String
@@ -121,6 +125,7 @@ Reporting on results of a close:
 
     { tag: "closed"
     , args : { key : <string>
+             , bufferedAmount : <integer string>
              , code : <string>
              , reason : <string>
              , wasClean : <boolean string ("true" or anything else for false)>
