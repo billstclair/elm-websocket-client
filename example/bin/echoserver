@@ -1,0 +1,14 @@
+#!/bin/bash
+
+#
+# Start a simple echo server on the port given in the arg, default 8888.
+#
+# Requires the "ws" package:
+#
+#   npm install -g ws
+#
+# Will install it if it's not there.
+
+npm view ws version >/dev/null 2>1 || npm install -g ws
+
+node site/echoserver.js $*

@@ -9,6 +9,19 @@
 -- See LICENSE
 --
 ----------------------------------------------------------------------
+--
+-- TODO
+--
+-- Move the Continuation into a table on the Elm side.
+-- Just send a delay identifier to the JS code in `PODelay`.
+-- If `PIDelayed` comes back with an unknown identifier, ignore it.
+-- Must remove the identifier -> Continuation entry at
+-- the appropriate times (connection reestablished, user closes connection).
+--
+-- If the connection goes down, don't try to restore it if there
+-- are bytes queued in the JS. The user code will have to recover
+-- in this case.
+--
 
 
 module WebSocketClient exposing
@@ -96,7 +109,7 @@ queueSend state key message =
                 |> Maybe.withDefault []
 
         new =
-            List.append current [ message ]
+            List.append current [ Debug.log "Queueing:" message ]
     in
     ( State
         { state
@@ -594,6 +607,58 @@ boolToString bool =
         "False"
 
 
+processQueuedMessage : StateRecord msg -> String -> ( State msg, Response msg )
+processQueuedMessage state key =
+    let
+        queues =
+            state.queues
+    in
+    case Dict.get key queues of
+        Nothing ->
+            ( State state, NoResponse )
+
+        Just [] ->
+            ( State
+                { state
+                    | queues = Dict.remove key queues
+                }
+            , NoResponse
+            )
+
+        Just (message :: tail) ->
+            let
+                (Config { sendPort }) =
+                    state.config
+
+                posend =
+                    POSend
+                        { key = key
+                        , message =
+                            Debug.log "Dequeuing:" message
+                        }
+
+                podelay =
+                    PODelay
+                        { millis = 20
+                        , continuation =
+                            DrainOutputQueue key
+                        }
+
+                cmds =
+                    Cmd.batch <|
+                        List.map
+                            (encodePortMessage >> sendPort)
+                            [ podelay, posend ]
+            in
+            ( State
+                { state
+                    | queues =
+                        Dict.insert key tail queues
+                }
+            , CmdResponse cmds
+            )
+
+
 {-| Process a Value that comes in over the subscription port.
 -}
 process : State msg -> Value -> ( State msg, Response msg )
@@ -642,9 +707,6 @@ process (State state) value =
                                     , socketBackoffs =
                                         Dict.remove key backoffs
                                 }
-
-                            queues =
-                                state.queues
                         in
                         if maybeBackoff == Nothing then
                             ( State newState
@@ -653,42 +715,7 @@ process (State state) value =
                             )
 
                         else
-                            case Dict.get key queues of
-                                Nothing ->
-                                    ( State newState, NoResponse )
-
-                                Just [] ->
-                                    ( State
-                                        { newState
-                                            | queues = Dict.remove key queues
-                                        }
-                                    , NoResponse
-                                    )
-
-                                Just (message :: tail) ->
-                                    let
-                                        (Config { sendPort }) =
-                                            state.config
-
-                                        po =
-                                            POSend
-                                                { key = key
-                                                , message = message
-                                                }
-                                    in
-                                    ( State
-                                        { newState
-                                            | queues =
-                                                if tail == [] then
-                                                    Dict.remove key queues
-
-                                                else
-                                                    Dict.insert key tail queues
-                                        }
-                                      -- TODO: a Task here must continue sending
-                                    , CmdResponse <|
-                                        sendPort (encodePortMessage po)
-                                    )
+                            processQueuedMessage newState key
 
                 PIMessageReceived { key, message } ->
                     if not (Set.member key openSockets) then
@@ -742,7 +769,7 @@ process (State state) value =
                                             }
                                         )
                                         key
-                                        (Debug.log "Reopening" url)
+                                        url
 
                                 Nothing ->
                                     unexpectedClose state
@@ -753,12 +780,11 @@ process (State state) value =
                                         }
 
                         DrainOutputQueue key ->
-                            unexpectedClose state
-                                { key = key
-                                , code = closedCodeNumber AbnormalClosure
-                                , reason = "Missing URL for reconnect"
-                                , wasClean = False
-                                }
+                            let
+                                queues =
+                                    state.queues
+                            in
+                            processQueuedMessage state key
 
                 PIError { key, code, description, name } ->
                     ( State state
