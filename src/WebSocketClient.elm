@@ -99,7 +99,7 @@ queueSend state key message =
                 |> Maybe.withDefault []
 
         new =
-            List.append current [ Debug.log "Queueing:" message ]
+            List.append current [ message ]
     in
     ( State
         { state
@@ -116,7 +116,7 @@ queueSend state key message =
 You must call `open` or `openWithKey` before calling `send`.
 
 The first arg is a `PortVersion`, to remind you to update your JavaScript
-port code, when it changes incompatibly.
+port code, if it changes incompatibly.
 
     send PortVersion2 state key message
 
@@ -731,8 +731,7 @@ processQueuedMessage state key =
                 posend =
                     POSend
                         { key = key
-                        , message =
-                            Debug.log "Dequeuing:" message
+                        , message = message
                         }
 
                 ( id, state2 ) =
@@ -1113,8 +1112,7 @@ handleUnexpectedClose state closedRecord =
             delay =
                 PODelay
                     { millis =
-                        backoffMillis <|
-                            Debug.log "Backoff" backoff
+                        backoffMillis backoff
                     , id = id
                     }
                     |> encodePortMessage
