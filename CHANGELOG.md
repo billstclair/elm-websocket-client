@@ -1,5 +1,9 @@
 # Changelog for billstclair/elm-websocket-client
 
+## 2.0.1, 9/4/2018
+
+* Fix some doc strings.
+
 ## 2.0.0, 9/4/2018
 
 * Reconnect with exponential backoff after unexpected connection loss.
