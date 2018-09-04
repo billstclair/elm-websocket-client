@@ -82,7 +82,6 @@ import Dict exposing (Dict)
 import Json.Encode as JE exposing (Value)
 import List.Extra as LE
 import Process
-import Set exposing (Set)
 import Task exposing (Task)
 import WebSocketClient.PortMessage
     exposing
@@ -133,8 +132,12 @@ port code, when it changes incompatibly.
 -}
 send : PortVersion -> State msg -> String -> String -> ( State msg, Response msg )
 send _ (State state) key message =
-    if not (Set.member key state.openSockets) then
-        if Dict.get key state.socketBackoffs == Nothing then
+    let
+        socketState =
+            getSocketState key state
+    in
+    if socketState.phase /= ConnectedPhase then
+        if socketState.backoff == 0 then
             -- TODO: This will eventually open, send, close.
             -- For now, though, it's an error.
             ( State state, ErrorResponse <| SocketNotOpenError key )
@@ -215,10 +218,10 @@ openWithKey _ =
 openWithKeyInternal : State msg -> String -> String -> ( State msg, Response msg )
 openWithKeyInternal (State state) key url =
     case checkUsedSocket state key of
-        Just res ->
+        Err res ->
             res
 
-        Nothing ->
+        Ok socketState ->
             let
                 (Config { sendPort, simulator }) =
                     state.config
@@ -230,10 +233,13 @@ openWithKeyInternal (State state) key url =
                 Nothing ->
                     ( State
                         { state
-                            | connectingSockets =
-                                Set.insert key state.connectingSockets
-                            , socketUrls =
-                                Dict.insert key url state.socketUrls
+                            | socketStates =
+                                Dict.insert key
+                                    { socketState
+                                        | phase = ConnectingPhase
+                                        , url = url
+                                    }
+                                    state.socketStates
                         }
                     , CmdResponse <| sendPort (encodePortMessage po)
                     )
@@ -241,8 +247,13 @@ openWithKeyInternal (State state) key url =
                 Just _ ->
                     ( State
                         { state
-                            | openSockets =
-                                Set.insert key state.openSockets
+                            | socketStates =
+                                Dict.insert key
+                                    { socketState
+                                        | phase = ConnectedPhase
+                                        , url = url
+                                    }
+                                    state.socketStates
                         }
                     , ConnectedResponse
                         { key = key
@@ -251,19 +262,24 @@ openWithKeyInternal (State state) key url =
                     )
 
 
-checkUsedSocket : StateRecord msg -> String -> Maybe ( State msg, Response msg )
+checkUsedSocket : StateRecord msg -> String -> Result ( State msg, Response msg ) SocketState
 checkUsedSocket state key =
-    if Set.member key state.openSockets then
-        Just ( State state, ErrorResponse <| SocketAlreadyOpenError key )
+    let
+        socketState =
+            getSocketState key state
+    in
+    case socketState.phase of
+        IdlePhase ->
+            Ok socketState
 
-    else if Set.member key state.connectingSockets then
-        Just ( State state, ErrorResponse <| SocketConnectingError key )
+        ConnectedPhase ->
+            Err ( State state, ErrorResponse <| SocketAlreadyOpenError key )
 
-    else if Set.member key state.closingSockets then
-        Just ( State state, ErrorResponse <| SocketClosingError key )
+        ConnectingPhase ->
+            Err ( State state, ErrorResponse <| SocketConnectingError key )
 
-    else
-        Nothing
+        ClosingPhase ->
+            Err ( State state, ErrorResponse <| SocketClosingError key )
 
 
 {-| Close a WebSocket opened by `open` or `keepAlive`.
@@ -277,13 +293,11 @@ The `key` arg is either they `key` arg to `openWithKey` or
 close : State msg -> String -> ( State msg, Response msg )
 close (State state) key =
     let
-        openSockets =
-            state.openSockets
-
-        closingSockets =
-            state.closingSockets
+        socketState =
+            getSocketState key state
     in
-    if not (Set.member key openSockets) then
+    if socketState.phase /= ConnectedPhase then
+        -- TODO: cancel the callback if its in OpeningPhase with a backoff
         ( State state, ErrorResponse <| SocketNotOpenError key )
 
     else
@@ -298,10 +312,10 @@ close (State state) key =
             Nothing ->
                 ( State
                     { state
-                        | openSockets =
-                            Set.remove key openSockets
-                        , closingSockets =
-                            Set.insert key closingSockets
+                        | socketStates =
+                            Dict.insert key
+                                { socketState | phase = ClosingPhase }
+                                state.socketStates
                     }
                 , CmdResponse <| sendPort (encodePortMessage po)
                 )
@@ -309,8 +323,8 @@ close (State state) key =
             Just _ ->
                 ( State
                     { state
-                        | openSockets =
-                            Set.remove key openSockets
+                        | socketStates =
+                            Dict.remove key state.socketStates
                     }
                 , ClosedResponse
                     { key = key
@@ -415,18 +429,26 @@ makeSimulatorConfig simulator =
     Config <| ConfigRecord (\_ -> Cmd.none) (Just simulator)
 
 
-type alias QueuesDict =
-    Dict.Dict String (List String)
+type SocketPhase
+    = IdlePhase
+    | ConnectingPhase
+    | ConnectedPhase
+    | ClosingPhase
+
+
+type alias SocketState =
+    { phase : SocketPhase
+    , url : String
+    , backoff : Int
+    }
 
 
 type alias StateRecord msg =
     { config : Config msg
-    , openSockets : Set String
-    , connectingSockets : Set String
-    , closingSockets : Set String
-    , socketUrls : Dict String String
-    , socketBackoffs : Dict String Int
-    , queues : QueuesDict
+    , socketStates : Dict String SocketState
+    , continuationCounter : Int
+    , continuations : Dict String Continuation
+    , queues : Dict String (List String)
     }
 
 
@@ -446,27 +468,25 @@ The `Config` arg is the result of `makeConfig` or `makeSimulatorConfig`.
 -}
 makeState : Config msg -> State msg
 makeState config =
-    State <|
-        StateRecord config
-            -- openSockets
-            Set.empty
-            -- connectingSockets
-            Set.empty
-            -- closingSockets
-            Set.empty
-            -- socketUrls
-            Dict.empty
-            -- socketBackoffs
-            Dict.empty
-            -- queues
-            Dict.empty
+    State
+        { config = config
+        , socketStates = Dict.empty
+        , continuationCounter = 0
+        , continuations = Dict.empty
+        , queues = Dict.empty
+        }
 
 
 {-| Get the URL for a key.
 -}
 getKeyUrl : String -> State msg -> Maybe String
 getKeyUrl key (State state) =
-    Dict.get key state.socketUrls
+    case Dict.get key state.socketStates of
+        Just socketState ->
+            Just socketState.url
+
+        Nothing ->
+            Nothing
 
 
 {-| Get a State's Config
@@ -476,7 +496,10 @@ getConfig (State state) =
     state.config
 
 
-{-| Get a State's Config
+{-| Set a State's Config.
+
+Will likely break things if you do this while connections are active.
+
 -}
 setConfig : Config msg -> State msg -> State msg
 setConfig config (State state) =
@@ -659,6 +682,20 @@ processQueuedMessage state key =
             )
 
 
+emptySocketState : SocketState
+emptySocketState =
+    { phase = IdlePhase
+    , url = ""
+    , backoff = 0
+    }
+
+
+getSocketState : String -> StateRecord msg -> SocketState
+getSocketState key state =
+    Dict.get key state.socketStates
+        |> Maybe.withDefault emptySocketState
+
+
 {-| Process a Value that comes in over the subscription port.
 -}
 process : State msg -> Value -> ( State msg, Response msg )
@@ -671,19 +708,13 @@ process (State state) value =
             )
 
         Ok pi ->
-            let
-                connectingSockets =
-                    state.connectingSockets
-
-                openSockets =
-                    state.openSockets
-
-                closingSockets =
-                    state.closingSockets
-            in
             case pi of
                 PIConnected { key, description } ->
-                    if not (Set.member key connectingSockets) then
+                    let
+                        socketState =
+                            getSocketState key state
+                    in
+                    if socketState.phase /= ConnectingPhase then
                         ( State state
                         , ErrorResponse <|
                             UnexpectedConnectedError
@@ -692,23 +723,18 @@ process (State state) value =
 
                     else
                         let
-                            backoffs =
-                                state.socketBackoffs
-
-                            maybeBackoff =
-                                Dict.get key backoffs
-
                             newState =
                                 { state
-                                    | connectingSockets =
-                                        Set.remove key connectingSockets
-                                    , openSockets =
-                                        Set.insert key openSockets
-                                    , socketBackoffs =
-                                        Dict.remove key backoffs
+                                    | socketStates =
+                                        Dict.insert key
+                                            { socketState
+                                                | phase = ConnectedPhase
+                                                , backoff = 0
+                                            }
+                                            state.socketStates
                                 }
                         in
-                        if maybeBackoff == Nothing then
+                        if socketState.backoff == 0 then
                             ( State newState
                             , ConnectedResponse
                                 { key = key, description = description }
@@ -718,7 +744,11 @@ process (State state) value =
                             processQueuedMessage newState key
 
                 PIMessageReceived { key, message } ->
-                    if not (Set.member key openSockets) then
+                    let
+                        socketState =
+                            getSocketState key state
+                    in
+                    if socketState.phase /= ConnectedPhase then
                         ( State state
                         , ErrorResponse <|
                             UnexpectedMessageError
@@ -731,16 +761,18 @@ process (State state) value =
                         )
 
                 PIClosed ({ key, code, reason, wasClean } as closedRecord) ->
-                    if not (Set.member key closingSockets) then
+                    let
+                        socketStates =
+                            getSocketState key state
+                    in
+                    if socketStates.phase /= ClosingPhase then
                         handleUnexpectedClose state closedRecord
 
                     else
                         ( State
                             { state
-                                | closingSockets =
-                                    Set.remove key closingSockets
-                                , socketUrls =
-                                    Dict.remove key state.socketUrls
+                                | socketStates =
+                                    Dict.remove key state.socketStates
                             }
                         , ClosedResponse
                             { key = key
@@ -751,39 +783,47 @@ process (State state) value =
                             }
                         )
 
+                -- This needs to be queried when we get an unexpected
+                -- close, and if non-zero, then instead of reopening
+                -- tell the user about it.
                 PIBytesQueued { key, bufferedAmount } ->
                     ( State state, NoResponse )
 
                 PIDelayed { continuation } ->
                     case continuation of
                         RetryConnection key ->
-                            case Dict.get key state.socketUrls of
-                                Just url ->
-                                    openWithKeyInternal
-                                        (State
-                                            { state
-                                                | openSockets =
-                                                    Set.remove key openSockets
-                                                , connectingSockets =
-                                                    Set.remove key connectingSockets
-                                            }
-                                        )
-                                        key
-                                        url
+                            let
+                                socketState =
+                                    getSocketState key state
 
-                                Nothing ->
-                                    unexpectedClose state
-                                        { key = key
-                                        , code = closedCodeNumber AbnormalClosure
-                                        , reason = "Missing URL for reconnect"
-                                        , wasClean = False
+                                url =
+                                    socketState.url
+                            in
+                            if url /= "" then
+                                openWithKeyInternal
+                                    (State
+                                        { state
+                                            | socketStates =
+                                                Dict.insert key
+                                                    { socketState
+                                                        | phase = IdlePhase
+                                                    }
+                                                    state.socketStates
                                         }
+                                    )
+                                    key
+                                    url
+
+                            else
+                                -- This shouldn't be possible
+                                unexpectedClose state
+                                    { key = key
+                                    , code = closedCodeNumber AbnormalClosure
+                                    , reason = "Missing URL for reconnect"
+                                    , wasClean = False
+                                    }
 
                         DrainOutputQueue key ->
-                            let
-                                queues =
-                                    state.queues
-                            in
                             processQueuedMessage state key
 
                 PIError { key, code, description, name } ->
@@ -947,15 +987,15 @@ handleUnexpectedClose state closedRecord =
         key =
             closedRecord.key
 
-        backoffs =
-            state.socketBackoffs
+        socketState =
+            getSocketState key state
 
         backoff =
-            1 + Maybe.withDefault 0 (Dict.get key backoffs)
+            1 + socketState.backoff
     in
     if
         (backoff > maxBackoff)
-            || (backoff == 1 && (not <| Set.member key state.openSockets))
+            || (backoff == 1 && socketState.phase /= ConnectedPhase)
     then
         -- It was never successfully opened.
         unexpectedClose state
@@ -969,47 +1009,43 @@ handleUnexpectedClose state closedRecord =
             }
 
     else
-        -- It WAS successfully opened. Wait for the backoff time, and reopen.
-        case Dict.get key state.socketUrls of
-            Nothing ->
-                unexpectedClose state closedRecord
+    -- It WAS successfully opened. Wait for the backoff time, and reopen.
+    if
+        socketState.url == ""
+    then
+        unexpectedClose state closedRecord
 
-            Just _ ->
-                let
-                    delay =
-                        PODelay
-                            { millis =
-                                backoffMillis <|
-                                    Debug.log "Backoff" backoff
-                            , continuation =
-                                RetryConnection key
-                            }
-                            |> encodePortMessage
-
-                    (Config { sendPort }) =
-                        state.config
-                in
-                ( State
-                    { state
-                        | socketBackoffs =
-                            Dict.insert key backoff backoffs
+    else
+        let
+            delay =
+                PODelay
+                    { millis =
+                        backoffMillis <|
+                            Debug.log "Backoff" backoff
+                    , continuation =
+                        RetryConnection key
                     }
-                , CmdResponse <| sendPort delay
-                )
+                    |> encodePortMessage
+
+            (Config { sendPort }) =
+                state.config
+        in
+        ( State
+            { state
+                | socketStates =
+                    Dict.insert key
+                        { socketState | backoff = backoff }
+                        state.socketStates
+            }
+        , CmdResponse <| sendPort delay
+        )
 
 
 unexpectedClose : StateRecord msg -> PIClosedRecord -> ( State msg, Response msg )
 unexpectedClose state { key, code, reason, wasClean } =
     ( State
         { state
-            | connectingSockets =
-                Set.remove key state.connectingSockets
-            , openSockets =
-                Set.remove key state.openSockets
-            , closingSockets =
-                Set.remove key state.closingSockets
-            , socketUrls =
-                Dict.remove key state.socketUrls
+            | socketStates = Dict.remove key state.socketStates
         }
     , ClosedResponse
         { key = key

@@ -24,7 +24,7 @@ Then aim your browser at file:///.../elm-websocket-client/example/site/index.htm
 
 Where "..." is a path to the package directory, e.g. on my Mac it is: file:///Users/billstclair/elm/elm-websocket-client/example/site/index.html.
 
-To hook up the ports to your own application, you need to define the two ports in your toplevel file:
+To hook up the ports to your own application, you need to define the two ports in an included `port module` (as in `src/Main.elm`):
 
     port webSocketClientCmd : Json.Encode.Value -> Cmd msg
 
