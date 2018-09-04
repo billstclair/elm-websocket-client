@@ -352,10 +352,6 @@ you might say something like this:
     in
         ...
 
-**Note:** If the connection goes down, the effect manager tries to reconnect
-with an exponential backoff strategy. Any messages you try to `send` while the
-connection is down are queued and will be sent as soon as possible.
-
 -}
 keepAlive : State msg -> String -> ( State msg, Response msg )
 keepAlive state url =
@@ -369,10 +365,24 @@ keepAlive state url =
 -}
 keepAliveWithKey : State msg -> String -> String -> ( State msg, Response msg )
 keepAliveWithKey state key url =
-    ( state
-    , ErrorResponse <|
-        UnimplementedError { function = "keepAliveWithKey" }
-    )
+    let
+        ( State s, response ) =
+            openWithKeyInternal state key url
+    in
+    case Dict.get key s.socketStates of
+        Nothing ->
+            ( State s, response )
+
+        Just socketState ->
+            ( State
+                { s
+                    | socketStates =
+                        Dict.insert key
+                            { socketState | keepalive = True }
+                            s.socketStates
+                }
+            , response
+            )
 
 
 
@@ -448,6 +458,7 @@ type alias SocketState =
     , url : String
     , backoff : Int
     , continuationId : Maybe String
+    , keepalive : Bool
     }
 
 
@@ -766,6 +777,7 @@ emptySocketState =
     , url = ""
     , backoff = 0
     , continuationId = Nothing
+    , keepalive = False
     }
 
 
@@ -836,7 +848,11 @@ process (State state) value =
 
                     else
                         ( State state
-                        , MessageReceivedResponse { key = key, message = message }
+                        , if socketState.keepalive then
+                            NoResponse
+
+                          else
+                            MessageReceivedResponse { key = key, message = message }
                         )
 
                 PIClosed ({ key, code, reason, wasClean } as closedRecord) ->
