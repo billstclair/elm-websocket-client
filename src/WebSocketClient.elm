@@ -937,7 +937,7 @@ type ClosedCode
     = NormalClosure --1000
     | GoingAwayClosure --1002
     | ProtocolErrorClosure --1002
-    | UnsupprtedDataClosure --1003
+    | UnsupportedDataClosure --1003
     | NoStatusRecvdClosure --1005
     | AbnormalClosure --1006
     | InvalidFramePayloadDataClosure --1007
@@ -958,7 +958,7 @@ closurePairs =
     [ ( 1000, NormalClosure )
     , ( 1001, GoingAwayClosure )
     , ( 1002, ProtocolErrorClosure )
-    , ( 1003, UnsupprtedDataClosure )
+    , ( 1003, UnsupportedDataClosure )
     , ( 1005, NoStatusRecvdClosure )
     , ( 1006, AbnormalClosure )
     , ( 1007, InvalidFramePayloadDataClosure )
@@ -1008,8 +1008,8 @@ closedCodeToString code =
         ProtocolErrorClosure ->
             "ProtocolError"
 
-        UnsupprtedDataClosure ->
-            "UnsupprtedData"
+        UnsupportedDataClosure ->
+            "UnsupportedData"
 
         NoStatusRecvdClosure ->
             "NoStatusRecvd"
