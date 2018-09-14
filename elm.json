@@ -5,10 +5,11 @@
     "license": "MIT",
     "version": "2.0.2",
     "exposed-modules": [
-        "WebSocketClient"
+        "PortFunnel.WebSocket"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
+        "billstclair/elm-port-funnel": "1.0.2 <= v < 2.0.0",
         "elm/core": "1.0.0 <= v < 2.0.0",
         "elm/json": "1.0.0 <= v < 2.0.0",
         "elm-community/list-extra": "8.0.0 <= v < 9.0.0"
