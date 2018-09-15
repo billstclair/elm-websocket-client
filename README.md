@@ -20,69 +20,78 @@ The code below is similar to `example/src/Main.elm`.
 
 First you need declare your top-level module to support ports and you need to define the ports:
 
-    port module Main exposing (main)
-    
-    import Json.Encode exposing (Value)
-    import WebSocketClient exposing
-         ( Config, State, Response(..), PortVersion(..)
-         , makeConfig, makeState
-         )
+```elm
+port module Main exposing (main)
 
-    port webSocketClientCmd : Value -> Cmd msg
-    port webSocketClientSub : (Value -> msg) -> Sub msg
+import Json.Encode exposing (Value)
+import WebSocketClient exposing
+     ( Config, State, Response(..), PortVersion(..)
+     , makeConfig, makeState
+     )
+
+port webSocketClientCmd : Value -> Cmd msg
+port webSocketClientSub : (Value -> msg) -> Sub msg
+```
 
 Your Model needs a place to store the `WebSocketClient` state:
 
-    type alias Model =
-        { ...
-        , state : WebSocketClient.State Msg
-          ...
-        }
+```elm
+type alias Model =
+    { ...
+    , state : WebSocketClient.State Msg
+      ...
+    }
+```
 
 You need a `Msg` to wrap the subscription port, and you need to subscribe to it:
 
-    type Msg
-         = ...
-         | Receive Value
-       
-    subscriptions: Model -> Sub Msg
-    subscriptions model =
-        webSocketClientSub Receive
+```elm
+type Msg
+     = ...
+     | Receive Value
+
+subscriptions: Model -> Sub Msg
+subscriptions model =
+    webSocketClientSub Receive
+```
 
 You need to initialize that state:
 
-    -- A real config that uses your output port
-    config : Config Msg
-    config =
-        WebSocketClient.makeConfig webSocketClientCmd
+```elm
+-- A real config that uses your output port
+config : Config Msg
+config =
+    WebSocketClient.makeConfig webSocketClientCmd
 
-    -- A simulated config that echoes your output.
-    -- Will work in `elm reactor`.
-    simulatorConfig : Config Msg
-    simulatorConfig =
-        WebSocketClient.makeSimulatorConfig (\string -> Just string)
-      
-    -- In the shipped example, this choice is provided by two buttons.
-    useSimulator : Bool
-    useSimulator =
-        False
+-- A simulated config that echoes your output.
+-- Will work in `elm reactor`.
+simulatorConfig : Config Msg
+simulatorConfig =
+    WebSocketClient.makeSimulatorConfig (\string -> Just string)
 
-    init : () -> (Model, Cmd Msg)
-    init _ =
-        ( { ...
-          , state = WebSocketClient.makeState
-                      (if useSimulator then
-                         simulatorConfig
-                       else
-                         config
-                      )
-            ...
-          }
-        , Cmd.none
-        )
+-- In the shipped example, this choice is provided by two buttons.
+useSimulator : Bool
+useSimulator =
+    False
+
+init : () -> (Model, Cmd Msg)
+init _ =
+    ( { ...
+      , state = WebSocketClient.makeState
+                  (if useSimulator then
+                     simulatorConfig
+                   else
+                     config
+                  )
+        ...
+      }
+    , Cmd.none
+    )
+```
 
 You need to handle the `Receive` message in your `update` function:
 
+```elm
     update : Msg -> Model -> (Model, Cmd Msg)
     update msg model =
         case msg of
@@ -93,11 +102,13 @@ You need to handle the `Receive` message in your `update` function:
               |> processResponse model
 
           ...
+```
 
 You need to `open` a port before you call `send` on it, and `close` it when you're done with it, processing the returns, which, except for errors, will be commands to send out of your port.
 
 Note the `PortVersion2` arg to `open` and `send`. If a new version of the package changes the JavaScript port code incompatibly, the single value of type `PortVersion` will change, so that your code will fail to compile until you change it. This will hopefully remind you to update the `WebSocketClient.js` file with the new version.
 
+```elm
     WebSocketClient.open PortVersion2 model.state <url>
         |> processResponse model
 
@@ -106,9 +117,11 @@ Note the `PortVersion2` arg to `open` and `send`. If a new version of the packag
 
     WebSocketClient.close model.state <url>
         |> processResponse model
+```
 
 Finally, you have to process the `Response` data that comes back from the `WebSocketClient` action functions:
 
+```elm
     processResponse : Model -> ( State Msg, Response Msg ) -> ( Model, Cmd Msg )
     processResponse model ( state, response ) =
         let
@@ -151,3 +164,4 @@ Finally, you have to process the `Response` data that comes back from the `WebSo
             -- You probably won't see any of these.
             ErrorResponse error ->
               ...
+```
