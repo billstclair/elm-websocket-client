@@ -6,15 +6,10 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 import List
 import Maybe exposing (withDefault)
+import PortFunnel exposing (GenericMessage)
+import PortFunnel.WebSocket exposing (Message, decode, encode)
+import PortFunnel.WebSocket.InternalMessage exposing (InternalMessage(..))
 import Test exposing (..)
-import WebSocketClient.PortMessage as PM
-    exposing
-        ( PortMessage(..)
-        , RawPortMessage
-        , decodePortMessage
-        , encodePortMessage
-        , encodeRawPortMessage
-        )
 
 
 testMap : (x -> String -> Test) -> List x -> List Test
@@ -26,24 +21,11 @@ testMap test data =
     List.map2 test data numbers
 
 
-oneAndTwo : ( a, b, c ) -> ( a, b )
-oneAndTwo ( a, b, _ ) =
-    ( a, b )
-
-
-oneAndThree : ( a, b, c ) -> ( a, c )
-oneAndThree ( a, _, c ) =
-    ( a, c )
-
-
 all : Test
 all =
     Test.concat <|
         List.concat
-            [ testMap toRawTest <| List.map oneAndTwo toRawData
-            , testMap encodeRawTest <| List.map oneAndThree toRawData
-            , testMap fromRawTest fromRawData
-            , testMap decodeRawTest fromRawData
+            [ testMap encodeDecodeTest messages
             ]
 
 
@@ -67,225 +49,76 @@ expectResult sb was =
                     Expect.equal sbv wasv
 
 
-toRawTest : ( PortMessage, RawPortMessage ) -> String -> Test
-toRawTest ( message, sb ) name =
-    test ("toRawTest \"" ++ name ++ "\"")
+encodeDecodeTest : Message -> String -> Test
+encodeDecodeTest message name =
+    test ("encodeDecode #" ++ name)
         (\_ ->
-            Expect.equal sb <| PM.toRawPortMessage message
+            expectResult (Ok message) (decode <| encode message)
         )
 
 
-encodeRawTest : ( PortMessage, String ) -> String -> Test
-encodeRawTest ( message, sb ) name =
-    test ("encodeRawTest \"" ++ name ++ "\"")
-        (\_ ->
-            let
-                value =
-                    encodePortMessage message
-
-                string =
-                    JE.encode 0 value
-            in
-            Expect.equal sb string
-        )
-
-
-toRawData : List ( PortMessage, RawPortMessage, String )
-toRawData =
-    [ ( POOpen
-            { key = "thekey"
-            , url = "theurl"
-            }
-      , RawPortMessage "open" <|
-            Dict.fromList
-                [ ( "key", "thekey" )
-                , ( "url", "theurl" )
-                ]
-      , "{\"tag\":\"open\",\"args\":{\"key\":\"thekey\",\"url\":\"theurl\"}}"
-      )
-    , ( POSend
-            { key = "thekey"
-            , message = "hello"
-            }
-      , RawPortMessage "send" <|
-            Dict.fromList
-                [ ( "key", "thekey" )
-                , ( "message", "hello" )
-                ]
-      , "{\"tag\":\"send\",\"args\":{\"key\":\"thekey\",\"message\":\"hello\"}}"
-      )
-    , ( POClose
-            { key = "anotherkey"
-            , reason = "because"
-            }
-      , RawPortMessage "close" <|
-            Dict.fromList
-                [ ( "key", "anotherkey" )
-                , ( "reason", "because" )
-                ]
-      , "{\"tag\":\"close\",\"args\":{\"key\":\"anotherkey\",\"reason\":\"because\"}}"
-      )
-    , ( POBytesQueued { key = "anotherkey" }
-      , RawPortMessage "bytesQueued" <|
-            Dict.fromList [ ( "key", "anotherkey" ) ]
-      , "{\"tag\":\"bytesQueued\",\"args\":{\"key\":\"anotherkey\"}}"
-      )
-    , ( PODelay
-            { millis = 20
-            , id = "1"
-            }
-      , RawPortMessage "delay" <|
-            Dict.fromList
-                [ ( "millis", "20" )
-                , ( "id", "1" )
-                ]
-      , "{\"tag\":\"delay\",\"args\":{\"id\":\"1\",\"millis\":\"20\"}}"
-      )
-    ]
-
-
-fromRawTest : ( RawPortMessage, PortMessage ) -> String -> Test
-fromRawTest ( message, sb ) name =
-    test ("fromRawTest \"" ++ name ++ "\"")
-        (\_ ->
-            Expect.equal sb <| PM.fromRawPortMessage message
-        )
-
-
-decodeRawTest : ( RawPortMessage, PortMessage ) -> String -> Test
-decodeRawTest ( rpm, sb ) name =
-    let
-        value =
-            encodeRawPortMessage rpm
-    in
-    test ("decodeRawTest \"" ++ name ++ "\"")
-        (\_ ->
-            expectResult (Ok sb) <| PM.decodePortMessage value
-        )
-
-
-fromRawData : List ( RawPortMessage, PortMessage )
-fromRawData =
-    [ ( RawPortMessage "connected" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "description", "bloody fine" )
-                ]
-      , PIConnected
-            { key = "somekey"
-            , description = "bloody fine"
-            }
-      )
-    , ( RawPortMessage "messageReceived" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "message", "Earth to Bob. Come in Bob" )
-                ]
-      , PIMessageReceived
-            { key = "somekey"
-            , message = "Earth to Bob. Come in Bob"
-            }
-      )
-    , ( RawPortMessage "closed" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "bytesQueued", "0" )
-                , ( "code", "1000" )
-                , ( "reason", "because we like you" )
-                , ( "wasClean", "true" )
-                ]
-      , PIClosed
-            { key = "somekey"
-            , bytesQueued = 0
-            , code = 1000 --normal close
-            , reason = "because we like you"
-            , wasClean = True
-            }
-      )
-    , ( RawPortMessage "closed" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "bytesQueued", "12" )
-                , ( "code", "1006" )
-                , ( "reason", "I had a bad day" )
-                , ( "wasClean", "false" )
-                ]
-      , PIClosed
-            { key = "somekey"
-            , bytesQueued = 12
-            , code = 1006 --abnormal closure
-            , reason = "I had a bad day"
-            , wasClean = False
-            }
-      )
-    , ( RawPortMessage "bytesQueued" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "bufferedAmount", "12" )
-                ]
-      , PIBytesQueued
-            { key = "somekey"
-            , bufferedAmount = 12
-            }
-      )
-    , ( RawPortMessage "bytesQueued" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "bufferedAmount", "23 skidoo" )
-                ]
-        -- illegal number for bufferedAmount
-      , InvalidMessage
-      )
-    , ( RawPortMessage "delayed" <|
-            Dict.fromList
-                [ ( "id", "2" ) ]
-      , PIDelayed { id = "2" }
-      )
-    , ( RawPortMessage "error" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "code", "green" )
-                , ( "description", "You rock!" )
-                , ( "name", "SecurityError" )
-                ]
-      , PIError
-            { key = Just "somekey"
-            , code = "green"
-            , description = "You rock!"
-            , name = Just "SecurityError"
-            }
-      )
-    , ( RawPortMessage "error" <|
-            Dict.fromList
-                [ ( "key", "somekey" )
-                , ( "code", "orange" )
-                , ( "description", "Hit me with your best shot" )
-                ]
-      , PIError
-            { key = Just "somekey"
-            , code = "orange"
-            , description = "Hit me with your best shot"
-            , name = Nothing
-            }
-      )
-    , ( RawPortMessage "error" <|
-            Dict.fromList
-                [ ( "code", "green" )
-                , ( "description", "You rock!" )
-                ]
-      , PIError
-            { key = Nothing
-            , code = "green"
-            , description = "You rock!"
-            , name = Nothing
-            }
-      )
-    , ( RawPortMessage "error2" <|
-            Dict.fromList
-                [ ( "code", "green" )
-                , ( "description", "You rock!" )
-                ]
-        -- "error2" is not a known message
-      , InvalidMessage
-      )
+messages : List Message
+messages =
+    [ POOpen
+        { key = "thekey"
+        , url = "theurl"
+        }
+    , POSend
+        { key = "thekey"
+        , message = "hello"
+        }
+    , POClose
+        { key = "anotherkey"
+        , reason = "because"
+        }
+    , POBytesQueued { key = "anotherkey" }
+    , PODelay
+        { millis = 20
+        , id = "1"
+        }
+    , PIConnected
+        { key = "somekey"
+        , description = "bloody fine"
+        }
+    , PIMessageReceived
+        { key = "somekey"
+        , message = "Earth to Bob. Come in Bob"
+        }
+    , PIClosed
+        { key = "somekey"
+        , bytesQueued = 0
+        , code = 1000 --normal close
+        , reason = "because we like you"
+        , wasClean = True
+        }
+    , PIClosed
+        { key = "somekey"
+        , bytesQueued = 12
+        , code = 1006 --abnormal closure
+        , reason = "I had a bad day"
+        , wasClean = False
+        }
+    , PIBytesQueued
+        { key = "somekey"
+        , bufferedAmount = 12
+        }
+    , PIDelayed { id = "2" }
+    , PIError
+        { key = Just "somekey"
+        , code = "green"
+        , description = "You rock!"
+        , name = Just "SecurityError"
+        }
+    , PIError
+        { key = Just "somekey"
+        , code = "orange"
+        , description = "Hit me with your best shot"
+        , name = Nothing
+        }
+    , PIError
+        { key = Nothing
+        , code = "green"
+        , description = "You rock!"
+        , name = Nothing
+        }
     ]

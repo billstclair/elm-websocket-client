@@ -17,11 +17,11 @@
 
 
 module PortFunnel.WebSocket exposing
-    ( State, Response(..)
+    ( State, Message, Response(..)
     , moduleName, moduleDesc, commander
     , initialState
     , send
-    , isLoaded
+    , isLoaded, encode, decode
     )
 
 {-| Web sockets make it cheaper to talk to your servers.
@@ -42,7 +42,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Types
 
-@docs State, Response
+@docs State, Message, Response
 
 
 ## Components of a `PortFunnel.FunnelSpec`
@@ -62,7 +62,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Non-standard functions
 
-@docs isLoaded
+@docs isLoaded, encode, decode
 
 -}
 
@@ -181,6 +181,11 @@ moduleDesc =
     PortFunnel.makeModuleDesc moduleName encode decode process
 
 
+{-| Encode a `Message` into a `GenericMessage`.
+
+Only exposed so the tests can use it.
+
+-}
 encode : Message -> GenericMessage
 encode mess =
     let
@@ -213,7 +218,7 @@ encode mess =
                     ]
 
         POBytesQueued { key } ->
-            gm "bytesQueued" <|
+            gm "getBytesQueued" <|
                 JE.object [ ( "key", JE.string key ) ]
 
         PODelay { millis, id } ->
@@ -282,14 +287,141 @@ encode mess =
                     ]
 
 
+type alias KeyUrl =
+    { key : String, url : String }
+
+
+type alias KeyMessage =
+    { key : String, message : String }
+
+
+type alias KeyReason =
+    { key : String, reason : String }
+
+
+type alias MillisId =
+    { millis : Int, id : String }
+
+
+type alias KeyDescription =
+    { key : String, description : String }
+
+
+type alias KeyBufferedAmount =
+    { key : String, bufferedAmount : Int }
+
+
+type alias PIErrorRecord =
+    { key : Maybe String
+    , code : String
+    , description : String
+    , name : Maybe String
+    }
+
+
+valueDecode : Value -> Decoder a -> Result String a
+valueDecode value decoder =
+    case JD.decodeValue decoder value of
+        Ok a ->
+            Ok a
+
+        Err err ->
+            Err <| JD.errorToString err
+
+
+{-| Decode a `GenericMessage` into a `Message`.
+
+Only exposed so the tests can use it.
+
+-}
 decode : GenericMessage -> Result String Message
 decode { tag, args } =
     case tag of
         "startup" ->
             Ok Startup
 
+        "open" ->
+            JD.map2 KeyUrl
+                (JD.field "key" JD.string)
+                (JD.field "url" JD.string)
+                |> JD.map POOpen
+                |> valueDecode args
+
+        "send" ->
+            JD.map2 KeyMessage
+                (JD.field "key" JD.string)
+                (JD.field "message" JD.string)
+                |> JD.map POSend
+                |> valueDecode args
+
+        "close" ->
+            JD.map2 KeyReason
+                (JD.field "key" JD.string)
+                (JD.field "reason" JD.string)
+                |> JD.map POClose
+                |> valueDecode args
+
+        "getBytesQueued" ->
+            JD.map (\key -> { key = key })
+                (JD.field "key" JD.string)
+                |> JD.map POBytesQueued
+                |> valueDecode args
+
+        "delay" ->
+            JD.map2 MillisId
+                (JD.field "millis" JD.int)
+                (JD.field "id" JD.string)
+                |> JD.map PODelay
+                |> valueDecode args
+
+        "connected" ->
+            JD.map2 KeyDescription
+                (JD.field "key" JD.string)
+                (JD.field "description" JD.string)
+                |> JD.map PIConnected
+                |> valueDecode args
+
+        "messageReceived" ->
+            JD.map2 KeyMessage
+                (JD.field "key" JD.string)
+                (JD.field "message" JD.string)
+                |> JD.map PIMessageReceived
+                |> valueDecode args
+
+        "closed" ->
+            JD.map5 PIClosedRecord
+                (JD.field "key" JD.string)
+                (JD.field "bytesQueued" JD.int)
+                (JD.field "code" JD.int)
+                (JD.field "reason" JD.string)
+                (JD.field "wasClean" JD.bool)
+                |> JD.map PIClosed
+                |> valueDecode args
+
+        "bytesQueued" ->
+            JD.map2 KeyBufferedAmount
+                (JD.field "key" JD.string)
+                (JD.field "bufferedAmount" JD.int)
+                |> JD.map PIBytesQueued
+                |> valueDecode args
+
+        "delayed" ->
+            JD.map (\id -> { id = id })
+                (JD.field "id" JD.string)
+                |> JD.map PIDelayed
+                |> valueDecode args
+
+        "error" ->
+            JD.map4 PIErrorRecord
+                (JD.field "key" <| JD.nullable JD.string)
+                (JD.field "code" JD.string)
+                (JD.field "description" JD.string)
+                (JD.field "name" <| JD.nullable JD.string)
+                |> JD.map PIError
+                |> valueDecode args
+
         _ ->
-            Err <| "Unknown Echo tag: " ++ tag
+            Err <| "Unknown tag: " ++ tag
 
 
 {-| Send a `Message` through a `Cmd` port.
