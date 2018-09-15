@@ -21,7 +21,9 @@ module PortFunnel.WebSocket exposing
     , moduleName, moduleDesc, commander
     , initialState
     , send
-    , isLoaded, encode, decode
+    , toString, toJsonString
+    , isLoaded
+    , encode, decode
     )
 
 {-| Web sockets make it cheaper to talk to your servers.
@@ -60,9 +62,19 @@ connection once and then keep using. The major benefits of this are:
 @docs send
 
 
+# Conversion to Strings
+
+@docs toString, toJsonString
+
+
 ## Non-standard functions
 
-@docs isLoaded, encode, decode
+@docs isLoaded
+
+
+## Internal, exposed only for tests
+
+@docs encode, decode
 
 -}
 
@@ -486,54 +498,160 @@ commander gfPort response =
             Cmd.none
 
 
+simulator : Message -> Maybe Message
+simulator mess =
+    case mess of
+        Startup ->
+            Nothing
+
+        POOpen { key, url } ->
+            Just <|
+                PIConnected { key = key, description = "Simulated connection." }
+
+        POSend { key, message } ->
+            Just <| PIMessageReceived { key = key, message = message }
+
+        POClose { key, reason } ->
+            Just <|
+                PIClosed
+                    { key = key
+                    , bytesQueued = 0
+                    , code = closedCodeNumber NormalClosure
+                    , reason = "You asked for it, you got it, Toyota!"
+                    , wasClean = True
+                    }
+
+        POBytesQueued { key } ->
+            Just <| PIBytesQueued { key = key, bufferedAmount = 0 }
+
+        PODelay { millis, id } ->
+            Just <| PIDelayed { id = id }
+
+        _ ->
+            Just <|
+                PIError
+                    { key = Nothing
+                    , code = "Unknown message"
+                    , description = "You asked me to simulate an incoming message."
+                    , name = Nothing
+                    }
+
+
+{-| Make a simulated `Cmd` port.
+-}
+makeSimulatedCmdPort : (Value -> msg) -> Value -> Cmd msg
+makeSimulatedCmdPort =
+    PortFunnel.makeSimulatedFunnelCmdPort
+        moduleDesc
+        simulator
+
+
+{-| Convert a `Message` to a nice-looking human-readable string.
+-}
+toString : Message -> String
+toString mess =
+    case mess of
+        Startup ->
+            "<Startup>"
+
+        POOpen { key, url } ->
+            "POOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
+
+        PIConnected { key, description } ->
+            "PIConnected { key = \""
+                ++ key
+                ++ "\", description = \""
+                ++ description
+                ++ "\"}"
+
+        POSend { key, message } ->
+            "POOpen { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
+
+        PIMessageReceived { key, message } ->
+            "PIMessageReceived { key = \""
+                ++ key
+                ++ "\", message = \""
+                ++ message
+                ++ "\"}"
+
+        POClose { key, reason } ->
+            "POClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
+
+        PIClosed { key, bytesQueued, code, reason, wasClean } ->
+            "PIClosed { key = \""
+                ++ key
+                ++ "\", bytesQueued = \""
+                ++ String.fromInt bytesQueued
+                ++ "\", code = \""
+                ++ String.fromInt code
+                ++ "\", reason = \""
+                ++ reason
+                ++ "\", wasClean = \""
+                ++ (if wasClean then
+                        "True"
+
+                    else
+                        "False"
+                            ++ "\"}"
+                   )
+
+        POBytesQueued { key } ->
+            "POBytesQueued { key = \"" ++ key ++ "\"}"
+
+        PIBytesQueued { key, bufferedAmount } ->
+            "PIBytesQueued { key = \""
+                ++ key
+                ++ "\", bufferedAmount = \""
+                ++ String.fromInt bufferedAmount
+                ++ "\"}"
+
+        PODelay { millis, id } ->
+            "PODelay { millis = \""
+                ++ String.fromInt millis
+                ++ "\" id = \""
+                ++ id
+                ++ "\"}"
+
+        PIDelayed { id } ->
+            "PIDelayed { id = \"" ++ id ++ "\"}"
+
+        PIError { key, code, description, name } ->
+            "PIError { key = \""
+                ++ maybeString key
+                ++ "\" code = \""
+                ++ code
+                ++ "\" description = \""
+                ++ description
+                ++ "\" name = \""
+                ++ maybeString name
+                ++ "\"}"
+
+
+maybeString : Maybe String -> String
+maybeString s =
+    case s of
+        Nothing ->
+            "Nothing"
+
+        Just string ->
+            "Just " ++ string
+
+
+{-| Convert a `Message` to the same JSON string that gets sent
+
+over the wire to the JS code.
+
+-}
+toJsonString : Message -> String
+toJsonString message =
+    message
+        |> encode
+        |> PortFunnel.encodeGenericMessage
+        |> JE.encode 0
+
+
 
 {-
-
-   simulator : Message -> Maybe Message
-   simulator message =
-   case message of
-   Request string ->
-   Just (Request <| string ++ " (simulated)")
-
-           Startup ->
-               Nothing
-
-   {-| Make a simulated `Cmd` port.
-   -}
-   makeSimulatedCmdPort : (Value -> msg) -> Value -> Cmd msg
-   makeSimulatedCmdPort =
-   PortFunnel.makeSimulatedFunnelCmdPort
-   moduleDesc
-   simulator
-
-   {-| Convert a `Message` to a nice-looking human-readable string.
-   -}
-   toString : Message -> String
-   toString message =
-   case message of
-   Request string ->
-   string
-
-           Startup ->
-               "<Startup>"
-
-   {-| Convert a `Message` to the same JSON string that gets sent
-
-   over the wire to the JS code.
-
-   -}
-   toJsonString : Message -> String
-   toJsonString message =
-   message
-   |> encode
-   |> PortFunnel.encodeGenericMessage
-   |> JE.encode 0
-
-   {-| Make a message to send out through the port.
-   -}
-   makeMessage : String -> Message
-   makeMessage string =
-   Request string
 
    -- COMMANDS
 
@@ -1247,123 +1365,135 @@ commander gfPort response =
                                { json = JE.encode 0 value }
                        )
 
-   {-| This will usually be `NormalClosure`. The rest are standard, except for `UnknownClosure`, which denotes a code that is not defined, and `TimeoutOutOnReconnect`, which means that exponential backoff connection reestablishment attempts timed out.
+-}
 
-   The standard codes are from <https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent>
 
-   -}
-   type ClosedCode
-   = NormalClosure --1000
-   | GoingAwayClosure --1002
-   | ProtocolErrorClosure --1002
-   | UnsupportedDataClosure --1003
-   | NoStatusRecvdClosure --1005
-   | AbnormalClosure --1006
-   | InvalidFramePayloadDataClosure --1007
-   | PolicyViolationClosure --1008
-   | MessageTooBigClosure --1009
-   | MissingExtensionClosure --1010
-   | InternalErrorClosure --1011
-   | ServiceRestartClosure --1012
-   | TryAgainLaterClosure --1013
-   | BadGatewayClosure --1014
-   | TLSHandshakeClosure --1015
-   | TimedOutOnReconnect -- 4000 (available for use by applications)
-   | UnknownClosure
+{-| This will usually be `NormalClosure`. The rest are standard, except for `UnknownClosure`, which denotes a code that is not defined, and `TimeoutOutOnReconnect`, which means that exponential backoff connection reestablishment attempts timed out.
 
-   closurePairs : List ( Int, ClosedCode )
-   closurePairs =
-   [ ( 1000, NormalClosure )
-   , ( 1001, GoingAwayClosure )
-   , ( 1002, ProtocolErrorClosure )
-   , ( 1003, UnsupportedDataClosure )
-   , ( 1005, NoStatusRecvdClosure )
-   , ( 1006, AbnormalClosure )
-   , ( 1007, InvalidFramePayloadDataClosure )
-   , ( 1008, PolicyViolationClosure )
-   , ( 1009, MessageTooBigClosure )
-   , ( 1010, MissingExtensionClosure )
-   , ( 1011, InternalErrorClosure )
-   , ( 1012, ServiceRestartClosure )
-   , ( 1013, TryAgainLaterClosure )
-   , ( 1014, BadGatewayClosure )
-   , ( 1015, TLSHandshakeClosure )
-   , ( 4000, TimedOutOnReconnect )
-   ]
+The standard codes are from <https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent>
 
-   closureDict : Dict Int ClosedCode
-   closureDict =
-   Dict.fromList closurePairs
+-}
+type ClosedCode
+    = NormalClosure --1000
+    | GoingAwayClosure --1002
+    | ProtocolErrorClosure --1002
+    | UnsupportedDataClosure --1003
+    | NoStatusRecvdClosure --1005
+    | AbnormalClosure --1006
+    | InvalidFramePayloadDataClosure --1007
+    | PolicyViolationClosure --1008
+    | MessageTooBigClosure --1009
+    | MissingExtensionClosure --1010
+    | InternalErrorClosure --1011
+    | ServiceRestartClosure --1012
+    | TryAgainLaterClosure --1013
+    | BadGatewayClosure --1014
+    | TLSHandshakeClosure --1015
+    | TimedOutOnReconnect -- 4000 (available for use by applications)
+    | UnknownClosure
 
-   closedCodeNumber : ClosedCode -> Int
-   closedCodeNumber code =
-   case LE.find (( _, c ) -> c == code) closurePairs of
-   Just ( int, _ ) ->
-   int
 
-           Nothing ->
-               0
+closurePairs : List ( Int, ClosedCode )
+closurePairs =
+    [ ( 1000, NormalClosure )
+    , ( 1001, GoingAwayClosure )
+    , ( 1002, ProtocolErrorClosure )
+    , ( 1003, UnsupportedDataClosure )
+    , ( 1005, NoStatusRecvdClosure )
+    , ( 1006, AbnormalClosure )
+    , ( 1007, InvalidFramePayloadDataClosure )
+    , ( 1008, PolicyViolationClosure )
+    , ( 1009, MessageTooBigClosure )
+    , ( 1010, MissingExtensionClosure )
+    , ( 1011, InternalErrorClosure )
+    , ( 1012, ServiceRestartClosure )
+    , ( 1013, TryAgainLaterClosure )
+    , ( 1014, BadGatewayClosure )
+    , ( 1015, TLSHandshakeClosure )
+    , ( 4000, TimedOutOnReconnect )
+    ]
 
-   closedCode : Int -> ClosedCode
-   closedCode code =
-   Maybe.withDefault UnknownClosure <| Dict.get code closureDict
 
-   {-| Turn a `ClosedCode` into a `String`, for debugging.
-   -}
-   closedCodeToString : ClosedCode -> String
-   closedCodeToString code =
-   case code of
-   NormalClosure ->
-   "Normal"
+closureDict : Dict Int ClosedCode
+closureDict =
+    Dict.fromList closurePairs
 
-           GoingAwayClosure ->
-               "GoingAway"
 
-           ProtocolErrorClosure ->
-               "ProtocolError"
+closedCodeNumber : ClosedCode -> Int
+closedCodeNumber code =
+    case LE.find (\( _, c ) -> c == code) closurePairs of
+        Just ( int, _ ) ->
+            int
 
-           UnsupportedDataClosure ->
-               "UnsupportedData"
+        -- Can't happen
+        Nothing ->
+            0
 
-           NoStatusRecvdClosure ->
-               "NoStatusRecvd"
 
-           AbnormalClosure ->
-               "Abnormal"
+closedCode : Int -> ClosedCode
+closedCode code =
+    Maybe.withDefault UnknownClosure <| Dict.get code closureDict
 
-           InvalidFramePayloadDataClosure ->
-               "InvalidFramePayloadData"
 
-           PolicyViolationClosure ->
-               "PolicyViolation"
+{-| Turn a `ClosedCode` into a `String`, for debugging.
+-}
+closedCodeToString : ClosedCode -> String
+closedCodeToString code =
+    case code of
+        NormalClosure ->
+            "Normal"
 
-           MessageTooBigClosure ->
-               "MessageTooBig"
+        GoingAwayClosure ->
+            "GoingAway"
 
-           MissingExtensionClosure ->
-               "MissingExtension"
+        ProtocolErrorClosure ->
+            "ProtocolError"
 
-           InternalErrorClosure ->
-               "InternalError"
+        UnsupportedDataClosure ->
+            "UnsupportedData"
 
-           ServiceRestartClosure ->
-               "ServiceRestart"
+        NoStatusRecvdClosure ->
+            "NoStatusRecvd"
 
-           TryAgainLaterClosure ->
-               "TryAgainLater"
+        AbnormalClosure ->
+            "Abnormal"
 
-           BadGatewayClosure ->
-               "BadGateway"
+        InvalidFramePayloadDataClosure ->
+            "InvalidFramePayloadData"
 
-           TLSHandshakeClosure ->
-               "TLSHandshake"
+        PolicyViolationClosure ->
+            "PolicyViolation"
 
-           TimedOutOnReconnect ->
-               "TimedOutOnReconnect"
+        MessageTooBigClosure ->
+            "MessageTooBig"
 
-           UnknownClosure ->
-               "UnknownClosureCode"
+        MissingExtensionClosure ->
+            "MissingExtension"
 
+        InternalErrorClosure ->
+            "InternalError"
+
+        ServiceRestartClosure ->
+            "ServiceRestart"
+
+        TryAgainLaterClosure ->
+            "TryAgainLater"
+
+        BadGatewayClosure ->
+            "BadGateway"
+
+        TLSHandshakeClosure ->
+            "TLSHandshake"
+
+        TimedOutOnReconnect ->
+            "TimedOutOnReconnect"
+
+        UnknownClosure ->
+            "UnknownClosureCode"
+
+
+
+{-
    -- REOPEN LOST CONNECTIONS AUTOMATICALLY
 
    {-| 10 x 1024 milliseconds = 10.2 seconds
