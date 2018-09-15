@@ -185,6 +185,8 @@ moduleDesc =
 
 Only exposed so the tests can use it.
 
+User code will use it implicitly through `moduleDesc`.
+
 -}
 encode : Message -> GenericMessage
 encode mess =
@@ -197,94 +199,100 @@ encode mess =
             gm "startup" JE.null
 
         POOpen { key, url } ->
-            gm "open" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "url", JE.string url )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "url", JE.string url )
+                ]
+                |> gm "open"
 
         POSend { key, message } ->
-            gm "send" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "message", JE.string message )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "message", JE.string message )
+                ]
+                |> gm "send"
 
         POClose { key, reason } ->
-            gm "close" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "reason", JE.string reason )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "reason", JE.string reason )
+                ]
+                |> gm "close"
 
         POBytesQueued { key } ->
-            gm "getBytesQueued" <|
-                JE.object [ ( "key", JE.string key ) ]
+            JE.object [ ( "key", JE.string key ) ]
+                |> gm "getBytesQueued"
 
         PODelay { millis, id } ->
-            gm "delay" <|
-                JE.object
-                    [ ( "millis", JE.int millis )
-                    , ( "id", JE.string id )
-                    ]
+            JE.object
+                [ ( "millis", JE.int millis )
+                , ( "id", JE.string id )
+                ]
+                |> gm "delay"
 
         PIConnected { key, description } ->
-            gm "connected" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "description", JE.string description )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "description", JE.string description )
+                ]
+                |> gm "connected"
 
         PIMessageReceived { key, message } ->
-            gm "messageReceived" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "message", JE.string message )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "message", JE.string message )
+                ]
+                |> gm "messageReceived"
 
         PIClosed { key, bytesQueued, code, reason, wasClean } ->
-            gm "closed" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "bytesQueued", JE.int bytesQueued )
-                    , ( "code", JE.int code )
-                    , ( "reason", JE.string reason )
-                    , ( "wasClean", JE.bool wasClean )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "bytesQueued", JE.int bytesQueued )
+                , ( "code", JE.int code )
+                , ( "reason", JE.string reason )
+                , ( "wasClean", JE.bool wasClean )
+                ]
+                |> gm "closed"
 
         PIBytesQueued { key, bufferedAmount } ->
-            gm "bytesQueued" <|
-                JE.object
-                    [ ( "key", JE.string key )
-                    , ( "bufferedAmount", JE.int bufferedAmount )
-                    ]
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "bufferedAmount", JE.int bufferedAmount )
+                ]
+                |> gm "bytesQueued"
 
         PIDelayed { id } ->
-            gm "delayed" <|
-                JE.object [ ( "id", JE.string id ) ]
+            JE.object [ ( "id", JE.string id ) ]
+                |> gm "delayed"
 
         PIError { key, code, description, name } ->
-            gm "error" <|
-                JE.object
-                    [ ( "key"
-                      , case key of
-                            Just k ->
-                                JE.string k
+            JE.object
+                [ ( "key"
+                  , case key of
+                        Just k ->
+                            JE.string k
 
-                            Nothing ->
-                                JE.null
-                      )
-                    , ( "code", JE.string code )
-                    , ( "description", JE.string description )
-                    , ( "name"
-                      , case name of
-                            Just n ->
-                                JE.string n
+                        Nothing ->
+                            JE.null
+                  )
+                , ( "code", JE.string code )
+                , ( "description", JE.string description )
+                , ( "name"
+                  , case name of
+                        Just n ->
+                            JE.string n
 
-                            Nothing ->
-                                JE.null
-                      )
-                    ]
+                        Nothing ->
+                            JE.null
+                  )
+                ]
+                |> gm "error"
+
+
+
+--
+-- A bunch of helper type aliases, to ease writing `decode` below.
+--
 
 
 type alias KeyUrl =
@@ -319,6 +327,11 @@ type alias PIErrorRecord =
     }
 
 
+{-| This is basically `Json.Decode.decodeValue`,
+
+but with the args reversed, and converting the error to a string.
+
+-}
 valueDecode : Value -> Decoder a -> Result String a
 valueDecode value decoder =
     case JD.decodeValue decoder value of
@@ -332,6 +345,8 @@ valueDecode value decoder =
 {-| Decode a `GenericMessage` into a `Message`.
 
 Only exposed so the tests can use it.
+
+User code will use it implicitly through `moduleDesc`.
 
 -}
 decode : GenericMessage -> Result String Message
@@ -444,7 +459,7 @@ process message ((State state) as unboxed) =
             ( unboxed, NoResponse )
 
 
-{-| Responsible for sending a `CmdResponse` back througt the port.
+{-| Responsible for sending a `CmdResponse` back through the port.
 
 Called by `PortFunnel.appProcess` for each response returned by `process`.
 
