@@ -13,6 +13,7 @@
 module PortFunnel.WebSocket.InternalMessage exposing
     ( InternalMessage(..)
     , PIClosedRecord
+    , PIErrorRecord
     )
 
 import Dict exposing (Dict)
@@ -26,6 +27,15 @@ type alias PIClosedRecord =
     , code : Int
     , reason : String
     , wasClean : Bool
+    }
+
+
+type alias PIErrorRecord =
+    { key : Maybe String
+    , code : String
+    , description : String
+    , name : Maybe String
+    , message : Maybe String
     }
 
 
@@ -43,9 +53,4 @@ type InternalMessage
     | PIClosed PIClosedRecord
     | PIBytesQueued { key : String, bufferedAmount : Int }
     | PIDelayed { id : String }
-    | PIError
-        { key : Maybe String
-        , code : String
-        , description : String
-        , name : Maybe String
-        }
+    | PIError PIErrorRecord

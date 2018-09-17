@@ -108,17 +108,20 @@ messages =
         , code = "green"
         , description = "You rock!"
         , name = Just "SecurityError"
+        , message = Just "Please close the door."
         }
     , PIError
         { key = Just "somekey"
         , code = "orange"
         , description = "Hit me with your best shot"
         , name = Nothing
+        , message = Nothing
         }
     , PIError
         { key = Nothing
         , code = "green"
         , description = "You rock!"
         , name = Nothing
+        , message = Nothing
         }
     ]
