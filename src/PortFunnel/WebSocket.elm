@@ -264,21 +264,21 @@ encode mess =
                 ]
                 |> gm "delay"
 
-        PLoopOpen { key, url } ->
+        PWillOpen { key, url } ->
             JE.object
                 [ ( "key", JE.string key )
                 , ( "url", JE.string url )
                 ]
                 |> gm "willopen"
 
-        PLoopSend { key, message } ->
+        PWillSend { key, message } ->
             JE.object
                 [ ( "key", JE.string key )
                 , ( "message", JE.string message )
                 ]
                 |> gm "willsend"
 
-        PLoopClose { key, reason } ->
+        PWillClose { key, reason } ->
             JE.object
                 [ ( "key", JE.string key )
                 , ( "reason", JE.string reason )
@@ -448,21 +448,21 @@ decode { tag, args } =
             JD.map2 KeyUrl
                 (JD.field "key" JD.string)
                 (JD.field "url" JD.string)
-                |> JD.map PLoopOpen
+                |> JD.map PWillOpen
                 |> valueDecode args
 
         "willsend" ->
             JD.map2 KeyMessage
                 (JD.field "key" JD.string)
                 (JD.field "message" JD.string)
-                |> JD.map PLoopSend
+                |> JD.map PWillSend
                 |> valueDecode args
 
         "willclose" ->
             JD.map2 KeyReason
                 (JD.field "key" JD.string)
                 (JD.field "reason" JD.string)
-                |> JD.map PLoopClose
+                |> JD.map PWillClose
                 |> valueDecode args
 
         "connected" ->
@@ -820,14 +820,14 @@ simulator mess =
         Startup ->
             Nothing
 
-        PLoopOpen { key, url } ->
+        PWillOpen { key, url } ->
             Just <|
                 PIConnected { key = key, description = "Simulated connection." }
 
-        PLoopSend { key, message } ->
+        PWillSend { key, message } ->
             Just <| PIMessageReceived { key = key, message = message }
 
-        PLoopClose { key, reason } ->
+        PWillClose { key, reason } ->
             Just <|
                 PIClosed
                     { key = key
@@ -875,8 +875,8 @@ toString mess =
         Startup ->
             "<Startup>"
 
-        PLoopOpen { key, url } ->
-            "PLoopOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
+        PWillOpen { key, url } ->
+            "PWillOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
 
         POOpen { key, url } ->
             "POOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
@@ -888,8 +888,8 @@ toString mess =
                 ++ description
                 ++ "\"}"
 
-        PLoopSend { key, message } ->
-            "PLoopSend { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
+        PWillSend { key, message } ->
+            "PWillSend { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
 
         POSend { key, message } ->
             "POSend { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
@@ -901,8 +901,8 @@ toString mess =
                 ++ message
                 ++ "\"}"
 
-        PLoopClose { key, reason } ->
-            "PLoopClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
+        PWillClose { key, reason } ->
+            "PWillClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
 
         POClose { key, reason } ->
             "POClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
