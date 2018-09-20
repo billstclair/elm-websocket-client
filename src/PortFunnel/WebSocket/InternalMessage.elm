@@ -48,7 +48,7 @@ type InternalMessage
     | POBytesQueued { key : String }
     | PODelay { millis : Int, id : String }
       -- loop
-    | PWillOpen { key : String, url : String }
+    | PWillOpen { key : String, url : String, keepAlive : Bool }
     | PWillSend { key : String, message : String }
     | PWillClose { key : String, reason : String }
       -- input

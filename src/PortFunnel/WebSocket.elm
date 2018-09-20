@@ -20,9 +20,12 @@ module PortFunnel.WebSocket exposing
     ( State, Message, Response(..)
     , moduleName, moduleDesc, commander
     , initialState
+    , makeOpen, makeSend, makeClose
+    , makeOpenWithKey, makeKeepAlive, makeKeepAliveWithKey
     , send
     , toString, toJsonString
-    , isLoaded
+    , makeSimulatedCmdPort
+    , isLoaded, getKeyUrl, willAutoReopen, setAutoReopen
     , encode, decode
     )
 
@@ -57,6 +60,12 @@ connection once and then keep using. The major benefits of this are:
 @docs initialState
 
 
+## Creating a `Message`
+
+@docs makeOpen, makeSend, makeClose
+@docs makeOpenWithKey, makeKeepAlive, makeKeepAliveWithKey
+
+
 ## Sending a `Message` out the `Cmd` Port
 
 @docs send
@@ -67,9 +76,14 @@ connection once and then keep using. The major benefits of this are:
 @docs toString, toJsonString
 
 
+# Simulator
+
+@docs makeSimulatedCmdPort
+
+
 ## Non-standard functions
 
-@docs isLoaded
+@docs isLoaded, getKeyUrl, willAutoReopen, setAutoReopen
 
 
 ## Internal, exposed only for tests
@@ -89,6 +103,7 @@ import PortFunnel.WebSocket.InternalMessage
         , PIClosedRecord
         , PIErrorRecord
         )
+import Set exposing (Set)
 import Task exposing (Task)
 
 
@@ -104,7 +119,7 @@ type alias SocketState =
     , url : String
     , backoff : Int
     , continuationId : Maybe String
-    , keepalive : Bool
+    , keepAlive : Bool
     }
 
 
@@ -125,6 +140,7 @@ type alias StateRecord =
     , continuationCounter : Int
     , continuations : Dict String Continuation
     , queues : Dict String (List String)
+    , noAutoReopenKeys : Set String
     }
 
 
@@ -147,6 +163,7 @@ initialState =
         , continuationCounter = 0
         , continuations = Dict.empty
         , queues = Dict.empty
+        , noAutoReopenKeys = Set.empty
         }
 
 
@@ -158,6 +175,42 @@ This is sent by the port code after it has initialized.
 isLoaded : State -> Bool
 isLoaded (State state) =
     state.isLoaded
+
+
+{-| Return `True` if the connection for the given key will be automatically reopened if it closes unexpectedly.
+
+This is the default. You may change it with setAutoReopen.
+
+    willAutoReopen key state
+
+-}
+willAutoReopen : String -> State -> Bool
+willAutoReopen key (State state) =
+    not <| Set.member key state.noAutoReopenKeys
+
+
+{-| Set whether the connection for the given key will be automatically reopened if it closes unexpectedly.
+
+This defaults to `True`. If you would rather get a `ClosedResponse` when it happens and handle it yourself, set it to `False` before sending a `makeOpen` message.
+
+You may change it back to `False` later. Changing it to `True` later will not interrupt any ongoing reconnection process.
+
+    setAutoReopen key autoReopen
+
+The key is either the key you plan to use for a `makeOpenWithKey` or `makeKeepAliveWithKey` message or the url for a `makeOpen` or `makeKeepAlive` message.
+
+-}
+setAutoReopen : String -> Bool -> State -> State
+setAutoReopen key autoReopen (State state) =
+    let
+        keys =
+            if autoReopen then
+                Set.remove key state.noAutoReopenKeys
+
+            else
+                Set.insert key state.noAutoReopenKeys
+    in
+    State { state | noAutoReopenKeys = keys }
 
 
 {-| A response that your code must process to update your model.
@@ -264,10 +317,11 @@ encode mess =
                 ]
                 |> gm "delay"
 
-        PWillOpen { key, url } ->
+        PWillOpen { key, url, keepAlive } ->
             JE.object
                 [ ( "key", JE.string key )
                 , ( "url", JE.string url )
+                , ( "keepAlive", JE.bool keepAlive )
                 ]
                 |> gm "willopen"
 
@@ -362,6 +416,10 @@ type alias KeyUrl =
     { key : String, url : String }
 
 
+type alias KeyUrlKeepAlive =
+    { key : String, url : String, keepAlive : Bool }
+
+
 type alias KeyMessage =
     { key : String, message : String }
 
@@ -445,9 +503,10 @@ decode { tag, args } =
                 |> valueDecode args
 
         "willopen" ->
-            JD.map2 KeyUrl
+            JD.map3 KeyUrlKeepAlive
                 (JD.field "key" JD.string)
                 (JD.field "url" JD.string)
+                (JD.field "keepAlive" JD.bool)
                 |> JD.map PWillOpen
                 |> valueDecode args
 
@@ -529,7 +588,7 @@ emptySocketState =
     , url = ""
     , backoff = 0
     , continuationId = Nothing
-    , keepalive = False
+    , keepAlive = False
     }
 
 
@@ -546,6 +605,15 @@ process mess ((State state) as unboxed) =
             ( State { state | isLoaded = True }
             , NoResponse
             )
+
+        PWillOpen { key, url, keepAlive } ->
+            doOpen state key url keepAlive
+
+        PWillSend { key, message } ->
+            doSend state key message
+
+        PWillClose { key, reason } ->
+            doClose state key reason
 
         PIConnected { key, description } ->
             let
@@ -595,7 +663,7 @@ process mess ((State state) as unboxed) =
 
             else
                 ( State state
-                , if socketState.keepalive then
+                , if socketState.keepAlive then
                     NoResponse
 
                   else
@@ -604,10 +672,14 @@ process mess ((State state) as unboxed) =
 
         PIClosed ({ key, bytesQueued, code, reason, wasClean } as closedRecord) ->
             let
-                socketStates =
+                socketState =
                     getSocketState key state
             in
-            if socketStates.phase /= ClosingPhase then
+            if
+                socketState.phase
+                    /= ClosingPhase
+                    && not (Set.member key state.noAutoReopenKeys)
+            then
                 handleUnexpectedClose state closedRecord
 
             else
@@ -875,8 +947,18 @@ toString mess =
         Startup ->
             "<Startup>"
 
-        PWillOpen { key, url } ->
-            "PWillOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
+        PWillOpen { key, url, keepAlive } ->
+            "PWillOpen { key = \""
+                ++ key
+                ++ "\", url = \""
+                ++ url
+                ++ "\", keepAlive = "
+                ++ (if keepAlive then
+                        "True"
+
+                    else
+                        "False" ++ "}"
+                   )
 
         POOpen { key, url } ->
             "POOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
@@ -980,295 +1062,236 @@ toJsonString message =
         |> JE.encode 0
 
 
+queueSend : StateRecord -> String -> String -> ( State, Response )
+queueSend state key message =
+    let
+        queues =
+            state.queues
 
-{-
+        current =
+            Dict.get key queues
+                |> Maybe.withDefault []
 
-   queueSend : StateRecord msg -> String -> String -> ( State msg, Response msg )
-   queueSend state key message =
-       let
-           queues =
-               state.queues
+        new =
+            List.append current [ message ]
+    in
+    ( State
+        { state
+            | queues = Dict.insert key new queues
+        }
+    , NoResponse
+    )
 
-           current =
-               Dict.get key queues
-                   |> Maybe.withDefault []
 
-           new =
-               List.append current [ message ]
-       in
-       ( State
-           { state
-               | queues = Dict.insert key new queues
-           }
-       , NoResponse
-       )
+
+-- COMMANDS
+
+
+{-| Create a `Message` to send a string to a particular address.
+
+    makeSend key message
+
+Example:
+
+    makeSend "wss://echo.websocket.org" "Hello!"
+        |> send cmdPort
+
+You must send a `makeOpen` or `makeOpenWithKey` message before `makeSend`.
+
+If you send a `makeSend` message before the connection has been established, or while it is being reestablished after it was lost, your message will be buffered and sent after the connection has been (re)established.
 
 -}
-{-
-
-   -- COMMANDS
-   {-| Send a message to a particular address. You might say something like this:
-
-       send state "ws://echo.websocket.org" "Hello!"
-
-   You must call `open` or `openWithKey` before calling `send`.
-
-   If you call `send` before the connection has been established, or while it is being reestablished after it was lost, your message will be buffered and sent after the connection has been (re)established.
-
-       send state key message
-
-   -}
-   send : String -> String -> Message
-   send key message =
-          let
-              socketState =
-                  getSocketState key state
-          in
-          if socketState.phase /= ConnectedPhase then
-              if socketState.backoff == 0 then
-                  -- TODO: This will eventually open, send, close.
-                  -- For now, though, it's an error.
-                  ( State state, ErrorResponse <| SocketNotOpenError key )
-
-              else
-                  -- We're attempting to reopen the connection. Queue sends.
-                  queueSend state key message
-
-          else
-              let
-                  (Config { sendPort, simulator }) =
-                      state.config
-
-                  po =
-                      POSend { key = key, message = message }
-              in
-              case simulator of
-                  Nothing ->
-                      if Dict.get key state.queues == Nothing then
-                          -- Normal send through the `Cmd` port.
-                          ( State state
-                          , CmdResponse <| sendPort (encodePortMessage po)
-                          )
-
-                      else
-                          -- We're queuing output. Add one more message to the queue.
-                          queueSend state key message
-
-                  Just transformer ->
-                      ( State state
-                      , case transformer message of
-                          Just response ->
-                              MessageReceivedResponse
-                                  { key = key
-                                  , message = response
-                                  }
-
-                          _ ->
-                              NoResponse
-                      )
+makeSend : String -> String -> Message
+makeSend key message =
+    PWillSend { key = key, message = message }
 
 
+doSend : StateRecord -> String -> String -> ( State, Response )
+doSend state key message =
+    let
+        socketState =
+            getSocketState key state
+    in
+    if socketState.phase /= ConnectedPhase then
+        if socketState.backoff == 0 then
+            -- TODO: This will eventually open, send, close.
+            -- For now, though, it's an error.
+            ( State state, ErrorResponse <| SocketNotOpenError key )
 
-         -- SUBSCRIPTIONS
+        else
+            -- We're attempting to reopen the connection. Queue sends.
+            queueSend state key message
 
-         {-| Subscribe to any incoming messages on a websocket. You might say something
-         like this:
+    else if Dict.get key state.queues == Nothing then
+        -- Normal send
+        ( State state
+        , CmdResponse <| POSend { key = key, message = message }
+        )
 
-             type Msg = Echo String | ...
+    else
+        -- We're queuing output. Add one more message to the queue.
+        queueSend state key message
 
-             subscriptions model =
-               open "ws://echo.websocket.org" Echo
 
-             open state url
+{-| Create a `Message` to open a connection to a WebSocket server.
 
-         -}
-         open : State msg -> String -> ( State msg, Response msg )
-         open state url =
-         openWithKey state url url
+    makeOpen url
 
-         {-| Like `open`, but allows matching a unique key to the connection.
+Example:
 
-         `open` uses the url as the key.
+    makeOpen "wss://echo.websocket.org"
+        |> send cmdPort
 
-             openWithKey state key url
-
-         -}
-         openWithKey : State msg -> String -> String -> ( State msg, Response msg )
-         openWithKey =
-         openWithKeyInternal
-
-         openWithKeyInternal : State msg -> String -> String -> ( State msg, Response msg )
-         openWithKeyInternal (State state) key url =
-         case checkUsedSocket state key of
-         Err res ->
-         res
-
-                 Ok socketState ->
-                     let
-                         (Config { sendPort, simulator }) =
-                             state.config
-
-                         po =
-                             POOpen { key = key, url = url }
-                     in
-                     case simulator of
-                         Nothing ->
-                             ( State
-                                 { state
-                                     | socketStates =
-                                         Dict.insert key
-                                             { socketState
-                                                 | phase = ConnectingPhase
-                                                 , url = url
-                                             }
-                                             state.socketStates
-                                 }
-                             , CmdResponse <| sendPort (encodePortMessage po)
-                             )
-
-                         Just _ ->
-                             ( State
-                                 { state
-                                     | socketStates =
-                                         Dict.insert key
-                                             { socketState
-                                                 | phase = ConnectedPhase
-                                                 , url = url
-                                             }
-                                             state.socketStates
-                                 }
-                             , ConnectedResponse
-                                 { key = key
-                                 , description = "simulated"
-                                 }
-                             )
-
-         checkUsedSocket : StateRecord msg -> String -> Result ( State msg, Response msg ) SocketState
-         checkUsedSocket state key =
-         let
-         socketState =
-         getSocketState key state
-         in
-         case socketState.phase of
-         IdlePhase ->
-         Ok socketState
-
-                 ConnectedPhase ->
-                     Err ( State state, ErrorResponse <| SocketAlreadyOpenError key )
-
-                 ConnectingPhase ->
-                     Err ( State state, ErrorResponse <| SocketConnectingError key )
-
-                 ClosingPhase ->
-                     Err ( State state, ErrorResponse <| SocketClosingError key )
-
-         {-| Close a WebSocket opened by `open` or `keepAlive`.
-
-             close state key
-
-         The `key` arg is either they `key` arg to `openWithKey` or
-         `keepAliveWithKey` or the `url` arg to `open` or `keepAlive`.
-
-         -}
-         close : State msg -> String -> ( State msg, Response msg )
-         close (State state) key =
-         let
-         socketState =
-         getSocketState key state
-         in
-         if socketState.phase /= ConnectedPhase then
-         -- TODO: cancel the callback if its in OpeningPhase with a backoff
-         ( State
-         { state
-         | continuations =
-         case socketState.continuationId of
-         Nothing ->
-         state.continuations
-
-                                 Just id ->
-                                     Dict.remove id state.continuations
-                         , socketStates =
-                             Dict.remove key state.socketStates
-                     }
-                   -- An abnormal close will be sent later
-                 , NoResponse
-                 )
-
-             else
-                 let
-                     (Config { sendPort, simulator }) =
-                         state.config
-
-                     po =
-                         POClose { key = key, reason = "user request" }
-                 in
-                 case simulator of
-                     Nothing ->
-                         ( State
-                             { state
-                                 | socketStates =
-                                     Dict.insert key
-                                         { socketState | phase = ClosingPhase }
-                                         state.socketStates
-                             }
-                         , CmdResponse <| sendPort (encodePortMessage po)
-                         )
-
-                     Just _ ->
-                         ( State
-                             { state
-                                 | socketStates =
-                                     Dict.remove key state.socketStates
-                             }
-                         , ClosedResponse
-                             { key = key
-                             , code = NormalClosure
-                             , reason = "simulator"
-                             , wasClean = True
-                             , expected = True
-                             }
-                         )
-
-         {-| Keep a connection alive, but do not report any messages. This is useful
-         for keeping a connection open for when you only need to `send` messages. So
-         you might say something like this:
-
-             let (state2, response) =
-                 keepAlive state "ws://echo.websocket.org"
-             in
-                 ...
-
-         -}
-         keepAlive : State msg -> String -> ( State msg, Response msg )
-         keepAlive state url =
-         keepAliveWithKey state url url
-
-         {-| Like `keepAlive`, but allows matching a unique key to the connection.
-
-             keeAliveWithKey state key url
-
-         -}
-         keepAliveWithKey : State msg -> String -> String -> ( State msg, Response msg )
-         keepAliveWithKey state key url =
-         let
-         ( State s, response ) =
-         openWithKeyInternal state key url
-         in
-         case Dict.get key s.socketStates of
-         Nothing ->
-         ( State s, response )
-
-                 Just socketState ->
-                     ( State
-                         { s
-                             | socketStates =
-                                 Dict.insert key
-                                     { socketState | keepalive = True }
-                                     s.socketStates
-                         }
-                     , response
-                     )
 -}
+makeOpen : String -> Message
+makeOpen url =
+    makeOpenWithKey url url
+
+
+{-| Like `makeOpen`, but allows matching a unique key to the connection.
+
+`makeOpen` uses the url as the key.
+
+    makeOpenWithKey key url
+
+Example:
+
+    makeOpenWithKey "echo" "wss://echo.websocket.org"
+
+-}
+makeOpenWithKey : String -> String -> Message
+makeOpenWithKey key url =
+    PWillOpen { key = key, url = url, keepAlive = False }
+
+
+doOpen : StateRecord -> String -> String -> Bool -> ( State, Response )
+doOpen state key url keepAlive =
+    case checkUsedSocket state key of
+        Err res ->
+            res
+
+        Ok socketState ->
+            ( State
+                { state
+                    | socketStates =
+                        Dict.insert key
+                            { socketState
+                                | phase = ConnectingPhase
+                                , url = url
+                                , keepAlive = keepAlive
+                            }
+                            state.socketStates
+                }
+            , CmdResponse <| POOpen { key = key, url = url }
+            )
+
+
+checkUsedSocket : StateRecord -> String -> Result ( State, Response ) SocketState
+checkUsedSocket state key =
+    let
+        socketState =
+            getSocketState key state
+    in
+    case socketState.phase of
+        IdlePhase ->
+            Ok socketState
+
+        ConnectedPhase ->
+            Err ( State state, ErrorResponse <| SocketAlreadyOpenError key )
+
+        ConnectingPhase ->
+            Err ( State state, ErrorResponse <| SocketConnectingError key )
+
+        ClosingPhase ->
+            Err ( State state, ErrorResponse <| SocketClosingError key )
+
+
+{-| Create a `Message` to close a previously opened WebSocket.
+
+    makeClose key
+
+The `key` arg is either they `key` arg to `makeOpenWithKey` or
+`makeKeepAliveWithKey` or the `url` arg to `makeOpen` or `makeKeepAlive`.
+
+Example:
+
+    makeClose "echo"
+        |> send cmdPort
+
+-}
+makeClose : String -> Message
+makeClose key =
+    PWillClose { key = key, reason = "user request" }
+
+
+doClose : StateRecord -> String -> String -> ( State, Response )
+doClose state key reason =
+    let
+        socketState =
+            getSocketState key state
+    in
+    if socketState.phase /= ConnectedPhase then
+        ( State
+            { state
+                | continuations =
+                    case socketState.continuationId of
+                        Nothing ->
+                            state.continuations
+
+                        Just id ->
+                            Dict.remove id state.continuations
+                , socketStates =
+                    Dict.remove key state.socketStates
+            }
+          -- An abnormal close error will be returned later
+        , NoResponse
+        )
+
+    else
+        ( State
+            { state
+                | socketStates =
+                    Dict.insert key
+                        { socketState | phase = ClosingPhase }
+                        state.socketStates
+            }
+        , CmdResponse <| POClose { key = key, reason = "user request" }
+        )
+
+
+{-| Create a `Message` to connect to a WebSocket server, but not report received messages.
+
+    makeKeepAlive url
+
+For keeping a connection open for when you only need to send `makeSend` messages.
+
+Example:
+
+       makeKeepAlive "wss://echo.websocket.org"
+         |> send cmdPort
+
+-}
+makeKeepAlive : String -> Message
+makeKeepAlive url =
+    makeKeepAliveWithKey url url
+
+
+{-| Like `makeKeepAlive`, but allows matching a unique key to the connection.
+
+       makeKeepAliveWithKey key url
+
+Example:
+
+       makeKeepAliveWithKey "echo" "wss://echo.websocket.org"
+         |> send cmdPort
+
+-}
+makeKeepAliveWithKey : String -> String -> Message
+makeKeepAliveWithKey key url =
+    PWillOpen { key = key, url = url, keepAlive = True }
+
+
+
 -- MANAGER
 
 

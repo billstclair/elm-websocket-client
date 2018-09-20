@@ -71,15 +71,16 @@ messages =
         { key = "anotherkey"
         , reason = "because"
         }
-    , PLoopOpen
+    , PWillOpen
         { key = "thekey"
         , url = "theurl"
+        , keepAlive = False
         }
-    , PLoopSend
+    , PWillSend
         { key = "thekey"
         , message = "hello"
         }
-    , PLoopClose
+    , PWillClose
         { key = "anotherkey"
         , reason = "because"
         }
