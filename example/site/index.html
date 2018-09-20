@@ -15,17 +15,18 @@
     <!-- Compile your Elm application into index.js. E.g.:
       -- elm make Main.elm --output site/index.js
       -->
-    <script type='text/javascript' src='index.js'></script>
-    <script type='text/javascript' src='js/WebSocketClient.js'></script>
+    <script type='text/javascript' src='elm.js'></script>
+    <script type='text/javascript' src='js/PortFunnel.js'></script>
   </head>
   <body>
     <div id='elm'></div>
     <script type='text/javascript'>
 
-// initialize your flags here, if you have them.
+// Initialize your flags here, if you have them.
 var flags = undefined;
 
-// Initialize the name of your main module here
+// Initialize the name of your main module here.
+// Change "Main" to your application's module name.
 var mainModule = 'Main';
 
 // Change "PortExample" to your application's module name.
@@ -34,11 +35,18 @@ var app = Elm[mainModule].init({
   flags: flags
 });
 
-// If you use non-standard names for the ports, you need to name them:
-//
-//   WebSocketClient.subscribe(app, 'webSocketClientCmd', 'webSocketClientSub');
-//
-WebSocketClient.subscribe(app);
+// These are the defaults, so you don't need to pass them.
+// If you need to use something different, they can be passed
+// as the 'portNames' and 'moduleDirectory' properties of
+// the second parameter to PortFunnel.subscribe() below.
+//var portNames = ['cmdPort', 'subPort'];
+//var moduleDirectory = 'js/PortFunnel';
+
+// PortFunnel.subscribe will load js/PortFunnel/<module>.js,
+// for each module in this list.
+var modules = ['WebSocket'];
+
+PortFunnel.subscribe(app, {modules: modules});
 
 // This is used by example/src/simple.elm to parse a JSON string.
 // You can safely remove it from your shipped code, unless you need

@@ -34,6 +34,7 @@
   var tagTable =
       { open: doOpen,
         send: doSend,
+        getBytesQueued: doGetBytesQueued,
         close: doClose,
         delay: doDelay,
         willopen: sendBack,
@@ -44,10 +45,17 @@
   function dispatcher(tag, args) {
     let f = tagTable[tag];
     if (f) {
-      f(args, tag);    // most functions ignore the tag
+      return f(args, tag);    // most functions ignore the tag
     } else {
       return unimplemented(tag, args);
     }
+  }
+
+  // This is for the willxxx commands, which need to have the State
+  // to do their thing, so can't be directly executed here.
+  // they'll come back as xxx, after the Elm code validates them.
+  function sendBack(args, tag) {
+    return objectReturn(tag, args);
   }
 
   function objectReturn(tag, args) {
@@ -161,16 +169,16 @@
     }
   } 
 
-  function doBytesQueued(args) {
+  function doGetBytesQueued(args) {
     var key = args.key;
     var socket = sockets[key];
     if (!socket) {
       return socketNotOpenReturn(key, "getBytesQueued");
     }
-    sub.send(objectReturn("bytesQueued",
-                          { key: key,
-                            bytesQueued: "" + socket.bufferedAmount
-                          }));
+    return objectReturn("bytesQueued",
+                        { key: key,
+                          bytesQueued: "" + socket.bufferedAmount
+                        });
   } 
 
   function doDelay(args) {

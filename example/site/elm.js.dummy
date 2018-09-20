@@ -1,0 +1,35 @@
+//////////////////////////////////////////////////////////////////////
+//
+// elm.js.dummy
+// Dummy Elm JS file.
+// Copyright (c) 2018 Bill St. Clair <billstclair@gmail.com>
+// Some rights reserved.
+// Distributed under the MIT License
+// See LICENSE
+//
+//////////////////////////////////////////////////////////////////////
+//
+// Normally, elm.js contains your compiled Elm application.
+// This is a dummy version of that file, with just enough to
+// enable testing of the startup code in index.html & the funnels directory.
+//
+// Copy this file to elm.js, then aim a browser at index.html.
+//
+//////////////////////////////////////////////////////////////////////
+
+var ports = {};
+ports.cmdPort = {};
+ports.cmdPort.subscribe = function() {};
+ports.subPort = {};
+ports.subPort.send = function(value) {
+  console.log('subPort.send(', value , ')');
+};
+
+var app = {}
+app.ports = ports;
+
+var Elm = {};
+Elm.Main = {};
+Elm.Main.init = function() {
+  return app;
+};

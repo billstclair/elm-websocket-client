@@ -28,12 +28,21 @@ Then aim your browser at file:///.../elm-websocket-client/example/site/index.htm
 
 Where "..." is a path to the package directory, e.g. on my Mac it is: file:///Users/billstclair/elm/elm-websocket-client/example/site/index.html.
 
-To hook up the ports to your own application, you need to define the two ports in an included `port module` (as in `src/Main.elm`):
+Or, if you have a browser that doesn't support `file://` URLs:
+
+```bash
+cd .../elm-websocket-client/example
+elm reactor
+```
+
+And aim your web browser at http://localhost:8000/site/index.html
+
+To hook up the ports to your own application, you need to define the two standard [billstclair/elm-port-funnel](https://package.elm-lang.org/packages/billstclair/elm-port-funnel/latest) ports in an included `port module` (as in `src/Main.elm`):
 
 ```elm
-port webSocketClientCmd : Json.Encode.Value -> Cmd msg
+port cmdPort : Json.Encode.Value -> Cmd msg
 
-port webSocketClientSub : (Json.Encode.Value -> msg) -> Sub msg
+port subPort : (Json.Encode.Value -> msg) -> Sub msg
 ```
 
 Then copy the `example/site/js` directory into your site directory:
@@ -48,54 +57,11 @@ Compile your top-level application file into your site directory:
 
 ```bash
 cd .../my-project
-elm make src/Main.elm --output .../my-site/index.js
+elm make src/Main.elm --output .../my-site/elm.js
 ```
 
-Then you need to set up your `index.html` much as I did in the `site` directory (adding any other port code you need):
+Then you need to set up your `index.html` much as I did in the `site` directory, customizing it for your applciation's needs.
 
-```html
-<html>
-  <head>
-    ...
-    <script type='text/javascript' src='index.js'></script>
-    <script type='text/javascript' src='js/WebSocketClient.js'></script>
-  </head>
-  <body>
-    <div id='elm'></div>
-    <script type='text/javascript'>
-
-// initialize your flags here, if you have them.
-var flags = undefined;
-
-// Initialize the name of your main module here
-var mainModule = 'Main';
-
-// Change "PortExample" to your application's module name.
-var app = Elm[mainModule].init({
-  node: document.getElementById('elm'),
-  flags: flags
-});
-
-// If you use non-standard names for the ports, you need to name them:
-//
-//   WebSocketClient.subscribe(app, 'webSocketClientCmd', 'webSocketClientSub');
-//
-WebSocketClient.subscribe(app);
-    </script>
-  </body>
-</html>
-```
-
-If you want to use a local WebSocket echo server, there is a simple one in the `site` directory. You can start it with:
-
-```bash
-cd .../WebSocketClient/example/site
-node echoserver.js [port]
-```
-
-Where `port` is an optional port on which to listen, default `8888`.
-
-The local server is especially useful for testing handling of connections that drop unexpectedly.
 
 ## More Scripts
 
@@ -105,7 +71,7 @@ Install the NPM `ws` package, if it isn't already installed, and start the WebSo
 bin/echoserver [port]
 ```
 
-Compile src/Main.elm to `site/index.js`, sync the `site` directory with the directory on my Mac where I store the `billstclair.github.io` repository, commit, and push. Not useful for anybody but me:
+Compile src/Main.elm to `site/elm.js`, sync the `site` directory with the directory on my Mac where I store the `billstclair.github.io` repository, commit, and push. Not useful for anybody but me:
 
 ```bash
 bin/update

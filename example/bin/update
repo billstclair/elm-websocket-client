@@ -4,7 +4,7 @@
 # commit, and push to GitHub.
 # This won't be very useful to anybody but me.
 
-elm make src/Main.elm --output site/index.js
+elm make src/Main.elm --output site/elm.js
 rsync -av site/ ~/elm/billstclair.github.io/elm-websocket-client/
 cd ~/elm/billstclair.github.io/elm-websocket-client
 git commit -am "Update elm-websocket-client example."

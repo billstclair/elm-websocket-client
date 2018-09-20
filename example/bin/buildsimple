@@ -1,3 +1,3 @@
 #!/bin/bash
 
-elm make src/simple.elm --output site/index.js
+elm make src/simple.elm --output site/elm.js
