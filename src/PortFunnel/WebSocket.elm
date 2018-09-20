@@ -94,6 +94,7 @@ connection once and then keep using. The major benefits of this are:
 
 import Dict exposing (Dict)
 import Json.Decode as JD exposing (Decoder)
+import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as JE exposing (Value)
 import List.Extra as LE
 import PortFunnel exposing (GenericMessage, ModuleDesc)
@@ -375,34 +376,30 @@ encode mess =
                 |> gm "delayed"
 
         PIError { key, code, description, name, message } ->
-            JE.object
-                [ ( "key"
-                  , case key of
-                        Just k ->
-                            JE.string k
+            List.concat
+                [ case key of
+                    Just k ->
+                        [ ( "key", JE.string k ) ]
 
-                        Nothing ->
-                            JE.null
-                  )
-                , ( "code", JE.string code )
-                , ( "description", JE.string description )
-                , ( "name"
-                  , case name of
-                        Just n ->
-                            JE.string n
+                    Nothing ->
+                        []
+                , [ ( "code", JE.string code )
+                  , ( "description", JE.string description )
+                  ]
+                , case name of
+                    Just n ->
+                        [ ( "name", JE.string n ) ]
 
-                        Nothing ->
-                            JE.null
-                  )
-                , ( "message"
-                  , case message of
-                        Just m ->
-                            JE.string m
+                    Nothing ->
+                        []
+                , case message of
+                    Just m ->
+                        [ ( "message", JE.string m ) ]
 
-                        Nothing ->
-                            JE.null
-                  )
+                    Nothing ->
+                        []
                 ]
+                |> JE.object
                 |> gm "error"
 
 
@@ -469,105 +466,105 @@ decode { tag, args } =
             Ok Startup
 
         "open" ->
-            JD.map2 KeyUrl
-                (JD.field "key" JD.string)
-                (JD.field "url" JD.string)
+            JD.succeed KeyUrl
+                |> required "key" JD.string
+                |> required "url" JD.string
                 |> JD.map POOpen
                 |> valueDecode args
 
         "send" ->
-            JD.map2 KeyMessage
-                (JD.field "key" JD.string)
-                (JD.field "message" JD.string)
+            JD.succeed KeyMessage
+                |> required "key" JD.string
+                |> required "message" JD.string
                 |> JD.map POSend
                 |> valueDecode args
 
         "close" ->
-            JD.map2 KeyReason
-                (JD.field "key" JD.string)
-                (JD.field "reason" JD.string)
+            JD.succeed KeyReason
+                |> required "key" JD.string
+                |> required "reason" JD.string
                 |> JD.map POClose
                 |> valueDecode args
 
         "getBytesQueued" ->
-            JD.map (\key -> { key = key })
-                (JD.field "key" JD.string)
+            JD.succeed (\key -> { key = key })
+                |> required "key" JD.string
                 |> JD.map POBytesQueued
                 |> valueDecode args
 
         "delay" ->
-            JD.map2 MillisId
-                (JD.field "millis" JD.int)
-                (JD.field "id" JD.string)
+            JD.succeed MillisId
+                |> required "millis" JD.int
+                |> required "id" JD.string
                 |> JD.map PODelay
                 |> valueDecode args
 
         "willopen" ->
-            JD.map3 KeyUrlKeepAlive
-                (JD.field "key" JD.string)
-                (JD.field "url" JD.string)
-                (JD.field "keepAlive" JD.bool)
+            JD.succeed KeyUrlKeepAlive
+                |> required "key" JD.string
+                |> required "url" JD.string
+                |> required "keepAlive" JD.bool
                 |> JD.map PWillOpen
                 |> valueDecode args
 
         "willsend" ->
-            JD.map2 KeyMessage
-                (JD.field "key" JD.string)
-                (JD.field "message" JD.string)
+            JD.succeed KeyMessage
+                |> required "key" JD.string
+                |> required "message" JD.string
                 |> JD.map PWillSend
                 |> valueDecode args
 
         "willclose" ->
-            JD.map2 KeyReason
-                (JD.field "key" JD.string)
-                (JD.field "reason" JD.string)
+            JD.succeed KeyReason
+                |> required "key" JD.string
+                |> required "reason" JD.string
                 |> JD.map PWillClose
                 |> valueDecode args
 
         "connected" ->
-            JD.map2 KeyDescription
-                (JD.field "key" JD.string)
-                (JD.field "description" JD.string)
+            JD.succeed KeyDescription
+                |> required "key" JD.string
+                |> required "description" JD.string
                 |> JD.map PIConnected
                 |> valueDecode args
 
         "messageReceived" ->
-            JD.map2 KeyMessage
-                (JD.field "key" JD.string)
-                (JD.field "message" JD.string)
+            JD.succeed KeyMessage
+                |> required "key" JD.string
+                |> required "message" JD.string
                 |> JD.map PIMessageReceived
                 |> valueDecode args
 
         "closed" ->
-            JD.map5 PIClosedRecord
-                (JD.field "key" JD.string)
-                (JD.field "bytesQueued" JD.int)
-                (JD.field "code" JD.int)
-                (JD.field "reason" JD.string)
-                (JD.field "wasClean" JD.bool)
+            JD.succeed PIClosedRecord
+                |> required "key" JD.string
+                |> required "bytesQueued" JD.int
+                |> required "code" JD.int
+                |> required "reason" JD.string
+                |> required "wasClean" JD.bool
                 |> JD.map PIClosed
                 |> valueDecode args
 
         "bytesQueued" ->
-            JD.map2 KeyBufferedAmount
-                (JD.field "key" JD.string)
-                (JD.field "bufferedAmount" JD.int)
+            JD.succeed KeyBufferedAmount
+                |> required "key" JD.string
+                |> required "bufferedAmount" JD.int
                 |> JD.map PIBytesQueued
                 |> valueDecode args
 
         "delayed" ->
-            JD.map (\id -> { id = id })
-                (JD.field "id" JD.string)
+            JD.succeed (\id -> { id = id })
+                |> required "id" JD.string
                 |> JD.map PIDelayed
                 |> valueDecode args
 
         "error" ->
-            JD.map5 PIErrorRecord
-                (JD.field "key" <| JD.nullable JD.string)
-                (JD.field "code" JD.string)
-                (JD.field "description" JD.string)
-                (JD.field "name" <| JD.nullable JD.string)
-                (JD.field "message" <| JD.nullable JD.string)
+            JD.succeed PIErrorRecord
+                |> optional "key" (JD.nullable JD.string) Nothing
+                |> required "code" JD.string
+                |> required "description" JD.string
+                |> optional "name" (JD.nullable JD.string) Nothing
+                |> optional "message" (JD.nullable JD.string) Nothing
                 |> JD.map PIError
                 |> valueDecode args
 
@@ -772,12 +769,10 @@ If an error tag has a single `String` arg, that string is a socket `key`.
 
 -}
 type Error
-    = UnimplementedError { function : String }
-    | SocketAlreadyOpenError String
+    = SocketAlreadyOpenError String
     | SocketConnectingError String
     | SocketClosingError String
     | SocketNotOpenError String
-    | PortDecodeError { error : String }
     | UnexpectedConnectedError { key : String, description : String }
     | UnexpectedMessageError { key : String, message : String }
     | LowLevelError PIErrorRecord
@@ -789,9 +784,6 @@ type Error
 errorToString : Error -> String
 errorToString theError =
     case theError of
-        UnimplementedError { function } ->
-            "UnimplementedError { function = \"" ++ function ++ "\" }"
-
         SocketAlreadyOpenError key ->
             "SocketAlreadyOpenError \"" ++ key ++ "\""
 
@@ -803,9 +795,6 @@ errorToString theError =
 
         SocketNotOpenError key ->
             "SocketNotOpenError \"" ++ key ++ "\""
-
-        PortDecodeError { error } ->
-            "PortDecodeError { error = \"" ++ error ++ "\" }"
 
         UnexpectedConnectedError { key, description } ->
             "UnexpectedConnectedError\n { key = \""
