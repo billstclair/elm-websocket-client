@@ -71,6 +71,18 @@ messages =
         { key = "anotherkey"
         , reason = "because"
         }
+    , PLoopOpen
+        { key = "thekey"
+        , url = "theurl"
+        }
+    , PLoopSend
+        { key = "thekey"
+        , message = "hello"
+        }
+    , PLoopClose
+        { key = "anotherkey"
+        , reason = "because"
+        }
     , POBytesQueued { key = "anotherkey" }
     , PODelay
         { millis = 20

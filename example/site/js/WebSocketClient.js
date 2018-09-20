@@ -51,12 +51,15 @@ function objectReturn(tag, args) {
   return { tag: tag, args : args };
 }
 
-function keyedErrorReturn(key, code, description, name) {
-  var message = { key: key, code: code, description: description };
+function keyedErrorReturn(key, code, description, name, message) {
+  var returnMessage = { key: key, code: code, description: description };
   if (name) {
-    message.name = name
+    returnMessage.name = name;
   }
-  return objectReturn("error", message);
+  if (message) {
+    returnMessage.message = message;
+  }
+  return objectReturn("error", returnMessage);
 }
 function errorReturn(code, description) {
   return objectReturn("error", { code: code, description: description });
@@ -85,7 +88,7 @@ var functions = {
   open: doOpen,
   send: doSend,
   close: doClose,
-  bytesQueued: doBytesQueued,
+  getBytesQueued: doBytesQueued,
   delay: doDelay
 };
 
@@ -143,8 +146,8 @@ function doOpen(args) {
   return null;
 } 
 
-function socketNotOpenReturn(key) {
-  return keyedErrorReturn(key, 'notopen', 'Socket not open');
+function socketNotOpenReturn(key, name, message) {
+  return keyedErrorReturn(key, 'notopen', 'Socket not open', name, message);
 }
 
 function doSend(args) {
@@ -152,7 +155,7 @@ function doSend(args) {
   var message = args.message;
   var socket = sockets[key];
   if (!socket) {
-    return socketNotOpenReturn(key);
+    return socketNotOpenReturn(key, "send", message);
   }
   try {
 	socket.send(message);
@@ -168,7 +171,7 @@ function doClose(args) {
   var reason = args.reason;
   var socket = sockets[key];
   if (!socket) {
-    return socketNotOpenReturn(key);
+    return socketNotOpenReturn(key, "close");
   }
   try {
     // Should this happen in the event listener?
@@ -185,9 +188,9 @@ function doBytesQueued(args) {
   var key = args.key;
   var socket = sockets[key];
   if (!socket) {
-    return socketNotOpenReturn(key);
+    return socketNotOpenReturn(key, "getBytesQueued");
   }
-  returnPort.send(objectReturn("closed",
+  returnPort.send(objectReturn("bytesQueued",
                                { key: key,
                                  bytesQueued: "" + socket.bufferedAmount
                                }));

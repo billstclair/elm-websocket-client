@@ -178,6 +178,7 @@ isLoaded (State state) =
 type Response
     = NoResponse
     | CmdResponse Message
+    | ListResponse (List Response)
     | ConnectedResponse { key : String, description : String }
     | MessageReceivedResponse { key : String, message : String }
     | ClosedResponse
@@ -262,6 +263,27 @@ encode mess =
                 , ( "id", JE.string id )
                 ]
                 |> gm "delay"
+
+        PLoopOpen { key, url } ->
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "url", JE.string url )
+                ]
+                |> gm "willopen"
+
+        PLoopSend { key, message } ->
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "message", JE.string message )
+                ]
+                |> gm "willsend"
+
+        PLoopClose { key, reason } ->
+            JE.object
+                [ ( "key", JE.string key )
+                , ( "reason", JE.string reason )
+                ]
+                |> gm "willclose"
 
         PIConnected { key, description } ->
             JE.object
@@ -422,6 +444,27 @@ decode { tag, args } =
                 |> JD.map PODelay
                 |> valueDecode args
 
+        "willopen" ->
+            JD.map2 KeyUrl
+                (JD.field "key" JD.string)
+                (JD.field "url" JD.string)
+                |> JD.map PLoopOpen
+                |> valueDecode args
+
+        "willsend" ->
+            JD.map2 KeyMessage
+                (JD.field "key" JD.string)
+                (JD.field "message" JD.string)
+                |> JD.map PLoopSend
+                |> valueDecode args
+
+        "willclose" ->
+            JD.map2 KeyReason
+                (JD.field "key" JD.string)
+                (JD.field "reason" JD.string)
+                |> JD.map PLoopClose
+                |> valueDecode args
+
         "connected" ->
             JD.map2 KeyDescription
                 (JD.field "key" JD.string)
@@ -504,151 +547,146 @@ process mess ((State state) as unboxed) =
             , NoResponse
             )
 
-        -- TODO
-        {-
-           PIConnected { key, description } ->
-               let
-                   socketState =
-                       getSocketState key state
-               in
-               if socketState.phase /= ConnectingPhase then
-                   ( State state
-                   , ErrorResponse <|
-                       UnexpectedConnectedError
-                           { key = key, description = description }
-                   )
+        PIConnected { key, description } ->
+            let
+                socketState =
+                    getSocketState key state
+            in
+            if socketState.phase /= ConnectingPhase then
+                ( State state
+                , ErrorResponse <|
+                    UnexpectedConnectedError
+                        { key = key, description = description }
+                )
 
-               else
-                   let
-                       newState =
-                           { state
-                               | socketStates =
-                                   Dict.insert key
-                                       { socketState
-                                           | phase = ConnectedPhase
-                                           , backoff = 0
-                                       }
-                                       state.socketStates
-                           }
-                   in
-                   if socketState.backoff == 0 then
-                       ( State newState
-                       , ConnectedResponse
-                           { key = key, description = description }
-                       )
+            else
+                let
+                    newState =
+                        { state
+                            | socketStates =
+                                Dict.insert key
+                                    { socketState
+                                        | phase = ConnectedPhase
+                                        , backoff = 0
+                                    }
+                                    state.socketStates
+                        }
+                in
+                if socketState.backoff == 0 then
+                    ( State newState
+                    , ConnectedResponse
+                        { key = key, description = description }
+                    )
 
-                   else
-                       processQueuedMessage newState key
+                else
+                    processQueuedMessage newState key
 
-           PIMessageReceived { key, message } ->
-               let
-                   socketState =
-                       getSocketState key state
-               in
-               if socketState.phase /= ConnectedPhase then
-                   ( State state
-                   , ErrorResponse <|
-                       UnexpectedMessageError
-                           { key = key, message = message }
-                   )
+        PIMessageReceived { key, message } ->
+            let
+                socketState =
+                    getSocketState key state
+            in
+            if socketState.phase /= ConnectedPhase then
+                ( State state
+                , ErrorResponse <|
+                    UnexpectedMessageError
+                        { key = key, message = message }
+                )
 
-               else
-                   ( State state
-                   , if socketState.keepalive then
-                       NoResponse
+            else
+                ( State state
+                , if socketState.keepalive then
+                    NoResponse
 
-                     else
-                       MessageReceivedResponse { key = key, message = message }
-                   )
+                  else
+                    MessageReceivedResponse { key = key, message = message }
+                )
 
-           PIClosed ({ key, code, reason, wasClean } as closedRecord) ->
-               let
-                   socketStates =
-                       getSocketState key state
-               in
-               if socketStates.phase /= ClosingPhase then
-                   handleUnexpectedClose state closedRecord
+        PIClosed ({ key, bytesQueued, code, reason, wasClean } as closedRecord) ->
+            let
+                socketStates =
+                    getSocketState key state
+            in
+            if socketStates.phase /= ClosingPhase then
+                handleUnexpectedClose state closedRecord
 
-               else
-                   ( State
-                       { state
-                           | socketStates =
-                               Dict.remove key state.socketStates
-                       }
-                   , ClosedResponse
-                       { key = key
-                       , code = closedCode code
-                       , reason = reason
-                       , wasClean = wasClean
-                       , expected = True
-                       }
-                   )
+            else
+                ( State
+                    { state
+                        | socketStates =
+                            Dict.remove key state.socketStates
+                    }
+                , ClosedResponse
+                    { key = key
+                    , code = closedCode code
+                    , reason = reason
+                    , wasClean = wasClean
+                    , expected = True
+                    }
+                )
 
-           -- This needs to be queried when we get an unexpected
-           -- close, and if non-zero, then instead of reopening
-           -- tell the user about it.
-           PIBytesQueued { key, bufferedAmount } ->
-               ( State state, NoResponse )
+        PIBytesQueued { key, bufferedAmount } ->
+            -- TODO
+            ( State state, NoResponse )
 
-           PIDelayed { id } ->
-               case getContinuation id state of
-                   Nothing ->
-                       ( State state, NoResponse )
+        PIDelayed { id } ->
+            case getContinuation id state of
+                Nothing ->
+                    ( State state, NoResponse )
 
-                   Just ( key, kind, state2 ) ->
-                       case kind of
-                           DrainOutputQueue ->
-                               processQueuedMessage state2 key
+                Just ( key, kind, state2 ) ->
+                    case kind of
+                        DrainOutputQueue ->
+                            processQueuedMessage state2 key
 
-                           RetryConnection ->
-                               let
-                                   socketState =
-                                       getSocketState key state
+                        RetryConnection ->
+                            let
+                                socketState =
+                                    getSocketState key state
 
-                                   url =
-                                       socketState.url
-                               in
-                               if url /= "" then
-                                   openWithKeyInternal
-                                       (State
-                                           { state2
-                                               | socketStates =
-                                                   Dict.insert key
-                                                       { socketState
-                                                           | phase = IdlePhase
-                                                       }
-                                                       state.socketStates
-                                           }
-                                       )
-                                       key
-                                       url
+                                url =
+                                    socketState.url
+                            in
+                            if url /= "" then
+                                ( State
+                                    { state2
+                                        | socketStates =
+                                            Dict.insert key
+                                                { socketState
+                                                    | phase = IdlePhase
+                                                }
+                                                state.socketStates
+                                    }
+                                , CmdResponse <| POOpen { key = key, url = url }
+                                )
 
-                               else
-                                   -- This shouldn't be possible
-                                   unexpectedClose state
-                                       { key = key
-                                       , code =
-                                           closedCodeNumber AbnormalClosure
-                                       , bytesQueued = 0
-                                       , reason =
-                                           "Missing URL for reconnect"
-                                       , wasClean =
-                                           False
-                                       }
+                            else
+                                -- This shouldn't be possible
+                                unexpectedClose state
+                                    { key = key
+                                    , code =
+                                        closedCodeNumber AbnormalClosure
+                                    , bytesQueued = 0
+                                    , reason =
+                                        "Missing URL for reconnect"
+                                    , wasClean =
+                                        False
+                                    }
 
-           PIError { key, code, description, name, message } ->
-               ( State state
-               , ErrorResponse <|
-                   LowLevelError
-                       { key = key
-                       , code = code
-                       , description = description
-                       , name = name
-                       , message = message
-                       }
-               )
+        PIError { key, code, description, name, message } ->
+            ( State state
+            , ErrorResponse <|
+                -- TODO.
+                -- Can get an error on send or close while unexpected close retry.
+                LowLevelError
+                    { key = key
+                    , code = code
+                    , description = description
+                    , name = name
+                    , message = message
+                    }
+            )
 
-        -}
         _ ->
             ( State state
             , ErrorResponse <|
@@ -757,6 +795,21 @@ commander gfPort response =
             encode message
                 |> gfPort
 
+        ListResponse responses ->
+            List.foldl
+                (\rsp res ->
+                    case rsp of
+                        CmdResponse message ->
+                            message :: res
+
+                        _ ->
+                            res
+                )
+                []
+                responses
+                |> List.map (encode >> gfPort)
+                |> Cmd.batch
+
         _ ->
             Cmd.none
 
@@ -767,14 +820,14 @@ simulator mess =
         Startup ->
             Nothing
 
-        POOpen { key, url } ->
+        PLoopOpen { key, url } ->
             Just <|
                 PIConnected { key = key, description = "Simulated connection." }
 
-        POSend { key, message } ->
+        PLoopSend { key, message } ->
             Just <| PIMessageReceived { key = key, message = message }
 
-        POClose { key, reason } ->
+        PLoopClose { key, reason } ->
             Just <|
                 PIClosed
                     { key = key
@@ -822,6 +875,9 @@ toString mess =
         Startup ->
             "<Startup>"
 
+        PLoopOpen { key, url } ->
+            "PLoopOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
+
         POOpen { key, url } ->
             "POOpen { key = \"" ++ key ++ "\", url = \"" ++ url ++ "\"}"
 
@@ -832,8 +888,11 @@ toString mess =
                 ++ description
                 ++ "\"}"
 
+        PLoopSend { key, message } ->
+            "PLoopSend { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
+
         POSend { key, message } ->
-            "POOpen { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
+            "POSend { key = \"" ++ key ++ "\", message = \"" ++ message ++ "\"}"
 
         PIMessageReceived { key, message } ->
             "PIMessageReceived { key = \""
@@ -841,6 +900,9 @@ toString mess =
                 ++ "\", message = \""
                 ++ message
                 ++ "\"}"
+
+        PLoopClose { key, reason } ->
+            "PLoopClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
 
         POClose { key, reason } ->
             "POClose { key = \"" ++ key ++ "\", reason = \"" ++ reason ++ "\"}"
@@ -919,7 +981,6 @@ toJsonString message =
 
 
 
--- COMMANDS
 {-
 
    queueSend : StateRecord msg -> String -> String -> ( State msg, Response msg )
@@ -942,7 +1003,10 @@ toJsonString message =
        , NoResponse
        )
 
+-}
+{-
 
+   -- COMMANDS
    {-| Send a message to a particular address. You might say something like this:
 
        send state "ws://echo.websocket.org" "Hello!"
@@ -954,181 +1018,21 @@ toJsonString message =
        send state key message
 
    -}
-   send : State msg -> String -> String -> ( State msg, Response msg )
-   send (State state) key message =
-       let
-           socketState =
-               getSocketState key state
-       in
-       if socketState.phase /= ConnectedPhase then
-           if socketState.backoff == 0 then
-               -- TODO: This will eventually open, send, close.
-               -- For now, though, it's an error.
-               ( State state, ErrorResponse <| SocketNotOpenError key )
+   send : String -> String -> Message
+   send key message =
+          let
+              socketState =
+                  getSocketState key state
+          in
+          if socketState.phase /= ConnectedPhase then
+              if socketState.backoff == 0 then
+                  -- TODO: This will eventually open, send, close.
+                  -- For now, though, it's an error.
+                  ( State state, ErrorResponse <| SocketNotOpenError key )
 
-           else
-               -- We're attempting to reopen the connection. Queue sends.
-               queueSend state key message
-
-       else
-           let
-               (Config { sendPort, simulator }) =
-                   state.config
-
-               po =
-                   POSend { key = key, message = message }
-           in
-           case simulator of
-               Nothing ->
-                   if Dict.get key state.queues == Nothing then
-                       -- Normal send through the `Cmd` port.
-                       ( State state
-                       , CmdResponse <| sendPort (encodePortMessage po)
-                       )
-
-                   else
-                       -- We're queuing output. Add one more message to the queue.
-                       queueSend state key message
-
-               Just transformer ->
-                   ( State state
-                   , case transformer message of
-                       Just response ->
-                           MessageReceivedResponse
-                               { key = key
-                               , message = response
-                               }
-
-                       _ ->
-                           NoResponse
-                   )
-
-
-
-      -- SUBSCRIPTIONS
-
-      {-| Subscribe to any incoming messages on a websocket. You might say something
-      like this:
-
-          type Msg = Echo String | ...
-
-          subscriptions model =
-            open "ws://echo.websocket.org" Echo
-
-          open state url
-
-      -}
-      open : State msg -> String -> ( State msg, Response msg )
-      open state url =
-      openWithKey state url url
-
-      {-| Like `open`, but allows matching a unique key to the connection.
-
-      `open` uses the url as the key.
-
-          openWithKey state key url
-
-      -}
-      openWithKey : State msg -> String -> String -> ( State msg, Response msg )
-      openWithKey =
-      openWithKeyInternal
-
-      openWithKeyInternal : State msg -> String -> String -> ( State msg, Response msg )
-      openWithKeyInternal (State state) key url =
-      case checkUsedSocket state key of
-      Err res ->
-      res
-
-              Ok socketState ->
-                  let
-                      (Config { sendPort, simulator }) =
-                          state.config
-
-                      po =
-                          POOpen { key = key, url = url }
-                  in
-                  case simulator of
-                      Nothing ->
-                          ( State
-                              { state
-                                  | socketStates =
-                                      Dict.insert key
-                                          { socketState
-                                              | phase = ConnectingPhase
-                                              , url = url
-                                          }
-                                          state.socketStates
-                              }
-                          , CmdResponse <| sendPort (encodePortMessage po)
-                          )
-
-                      Just _ ->
-                          ( State
-                              { state
-                                  | socketStates =
-                                      Dict.insert key
-                                          { socketState
-                                              | phase = ConnectedPhase
-                                              , url = url
-                                          }
-                                          state.socketStates
-                              }
-                          , ConnectedResponse
-                              { key = key
-                              , description = "simulated"
-                              }
-                          )
-
-      checkUsedSocket : StateRecord msg -> String -> Result ( State msg, Response msg ) SocketState
-      checkUsedSocket state key =
-      let
-      socketState =
-      getSocketState key state
-      in
-      case socketState.phase of
-      IdlePhase ->
-      Ok socketState
-
-              ConnectedPhase ->
-                  Err ( State state, ErrorResponse <| SocketAlreadyOpenError key )
-
-              ConnectingPhase ->
-                  Err ( State state, ErrorResponse <| SocketConnectingError key )
-
-              ClosingPhase ->
-                  Err ( State state, ErrorResponse <| SocketClosingError key )
-
-      {-| Close a WebSocket opened by `open` or `keepAlive`.
-
-          close state key
-
-      The `key` arg is either they `key` arg to `openWithKey` or
-      `keepAliveWithKey` or the `url` arg to `open` or `keepAlive`.
-
-      -}
-      close : State msg -> String -> ( State msg, Response msg )
-      close (State state) key =
-      let
-      socketState =
-      getSocketState key state
-      in
-      if socketState.phase /= ConnectedPhase then
-      -- TODO: cancel the callback if its in OpeningPhase with a backoff
-      ( State
-      { state
-      | continuations =
-      case socketState.continuationId of
-      Nothing ->
-      state.continuations
-
-                              Just id ->
-                                  Dict.remove id state.continuations
-                      , socketStates =
-                          Dict.remove key state.socketStates
-                  }
-                -- An abnormal close will be sent later
-              , NoResponse
-              )
+              else
+                  -- We're attempting to reopen the connection. Queue sends.
+                  queueSend state key message
 
           else
               let
@@ -1136,119 +1040,264 @@ toJsonString message =
                       state.config
 
                   po =
-                      POClose { key = key, reason = "user request" }
+                      POSend { key = key, message = message }
               in
               case simulator of
                   Nothing ->
-                      ( State
-                          { state
-                              | socketStates =
-                                  Dict.insert key
-                                      { socketState | phase = ClosingPhase }
-                                      state.socketStates
-                          }
-                      , CmdResponse <| sendPort (encodePortMessage po)
+                      if Dict.get key state.queues == Nothing then
+                          -- Normal send through the `Cmd` port.
+                          ( State state
+                          , CmdResponse <| sendPort (encodePortMessage po)
+                          )
+
+                      else
+                          -- We're queuing output. Add one more message to the queue.
+                          queueSend state key message
+
+                  Just transformer ->
+                      ( State state
+                      , case transformer message of
+                          Just response ->
+                              MessageReceivedResponse
+                                  { key = key
+                                  , message = response
+                                  }
+
+                          _ ->
+                              NoResponse
                       )
 
-                  Just _ ->
-                      ( State
-                          { state
-                              | socketStates =
-                                  Dict.remove key state.socketStates
-                          }
-                      , ClosedResponse
-                          { key = key
-                          , code = NormalClosure
-                          , reason = "simulator"
-                          , wasClean = True
-                          , expected = True
-                          }
-                      )
 
-      {-| Keep a connection alive, but do not report any messages. This is useful
-      for keeping a connection open for when you only need to `send` messages. So
-      you might say something like this:
 
-          let (state2, response) =
-              keepAlive state "ws://echo.websocket.org"
-          in
-              ...
+         -- SUBSCRIPTIONS
 
-      -}
-      keepAlive : State msg -> String -> ( State msg, Response msg )
-      keepAlive state url =
-      keepAliveWithKey state url url
+         {-| Subscribe to any incoming messages on a websocket. You might say something
+         like this:
 
-      {-| Like `keepAlive`, but allows matching a unique key to the connection.
+             type Msg = Echo String | ...
 
-          keeAliveWithKey state key url
+             subscriptions model =
+               open "ws://echo.websocket.org" Echo
 
-      -}
-      keepAliveWithKey : State msg -> String -> String -> ( State msg, Response msg )
-      keepAliveWithKey state key url =
-      let
-      ( State s, response ) =
-      openWithKeyInternal state key url
-      in
-      case Dict.get key s.socketStates of
-      Nothing ->
-      ( State s, response )
+             open state url
 
-              Just socketState ->
-                  ( State
-                      { s
-                          | socketStates =
-                              Dict.insert key
-                                  { socketState | keepalive = True }
-                                  s.socketStates
-                      }
-                  , response
-                  )
+         -}
+         open : State msg -> String -> ( State msg, Response msg )
+         open state url =
+         openWithKey state url url
 
-      -- MANAGER
+         {-| Like `open`, but allows matching a unique key to the connection.
 
-      {-| Get the URL for a key.
-      -}
-      getKeyUrl : String -> State msg -> Maybe String
-      getKeyUrl key (State state) =
-      case Dict.get key state.socketStates of
-      Just socketState ->
-      Just socketState.url
+         `open` uses the url as the key.
 
-              Nothing ->
-                  Nothing
+             openWithKey state key url
 
-      {-| Get a State's Config
-      -}
-      getConfig : State msg -> Config msg
-      getConfig (State state) =
-      state.config
+         -}
+         openWithKey : State msg -> String -> String -> ( State msg, Response msg )
+         openWithKey =
+         openWithKeyInternal
 
-      {-| Set a State's Config.
+         openWithKeyInternal : State msg -> String -> String -> ( State msg, Response msg )
+         openWithKeyInternal (State state) key url =
+         case checkUsedSocket state key of
+         Err res ->
+         res
 
-      Will likely break things if you do this while connections are active.
+                 Ok socketState ->
+                     let
+                         (Config { sendPort, simulator }) =
+                             state.config
 
-      -}
-      setConfig : Config msg -> State msg -> State msg
-      setConfig config (State state) =
-      State { state | config = config }
+                         po =
+                             POOpen { key = key, url = url }
+                     in
+                     case simulator of
+                         Nothing ->
+                             ( State
+                                 { state
+                                     | socketStates =
+                                         Dict.insert key
+                                             { socketState
+                                                 | phase = ConnectingPhase
+                                                 , url = url
+                                             }
+                                             state.socketStates
+                                 }
+                             , CmdResponse <| sendPort (encodePortMessage po)
+                             )
 
-      getContinuation : String -> StateRecord msg -> Maybe ( String, ContinuationKind, StateRecord msg )
-      getContinuation id state =
-      case Dict.get id state.continuations of
-      Nothing ->
-      Nothing
+                         Just _ ->
+                             ( State
+                                 { state
+                                     | socketStates =
+                                         Dict.insert key
+                                             { socketState
+                                                 | phase = ConnectedPhase
+                                                 , url = url
+                                             }
+                                             state.socketStates
+                                 }
+                             , ConnectedResponse
+                                 { key = key
+                                 , description = "simulated"
+                                 }
+                             )
 
-              Just continuation ->
-                  Just
-                      ( continuation.key
-                      , continuation.kind
-                      , { state
-                          | continuations = Dict.remove id state.continuations
-                        }
-                      )
+         checkUsedSocket : StateRecord msg -> String -> Result ( State msg, Response msg ) SocketState
+         checkUsedSocket state key =
+         let
+         socketState =
+         getSocketState key state
+         in
+         case socketState.phase of
+         IdlePhase ->
+         Ok socketState
 
+                 ConnectedPhase ->
+                     Err ( State state, ErrorResponse <| SocketAlreadyOpenError key )
+
+                 ConnectingPhase ->
+                     Err ( State state, ErrorResponse <| SocketConnectingError key )
+
+                 ClosingPhase ->
+                     Err ( State state, ErrorResponse <| SocketClosingError key )
+
+         {-| Close a WebSocket opened by `open` or `keepAlive`.
+
+             close state key
+
+         The `key` arg is either they `key` arg to `openWithKey` or
+         `keepAliveWithKey` or the `url` arg to `open` or `keepAlive`.
+
+         -}
+         close : State msg -> String -> ( State msg, Response msg )
+         close (State state) key =
+         let
+         socketState =
+         getSocketState key state
+         in
+         if socketState.phase /= ConnectedPhase then
+         -- TODO: cancel the callback if its in OpeningPhase with a backoff
+         ( State
+         { state
+         | continuations =
+         case socketState.continuationId of
+         Nothing ->
+         state.continuations
+
+                                 Just id ->
+                                     Dict.remove id state.continuations
+                         , socketStates =
+                             Dict.remove key state.socketStates
+                     }
+                   -- An abnormal close will be sent later
+                 , NoResponse
+                 )
+
+             else
+                 let
+                     (Config { sendPort, simulator }) =
+                         state.config
+
+                     po =
+                         POClose { key = key, reason = "user request" }
+                 in
+                 case simulator of
+                     Nothing ->
+                         ( State
+                             { state
+                                 | socketStates =
+                                     Dict.insert key
+                                         { socketState | phase = ClosingPhase }
+                                         state.socketStates
+                             }
+                         , CmdResponse <| sendPort (encodePortMessage po)
+                         )
+
+                     Just _ ->
+                         ( State
+                             { state
+                                 | socketStates =
+                                     Dict.remove key state.socketStates
+                             }
+                         , ClosedResponse
+                             { key = key
+                             , code = NormalClosure
+                             , reason = "simulator"
+                             , wasClean = True
+                             , expected = True
+                             }
+                         )
+
+         {-| Keep a connection alive, but do not report any messages. This is useful
+         for keeping a connection open for when you only need to `send` messages. So
+         you might say something like this:
+
+             let (state2, response) =
+                 keepAlive state "ws://echo.websocket.org"
+             in
+                 ...
+
+         -}
+         keepAlive : State msg -> String -> ( State msg, Response msg )
+         keepAlive state url =
+         keepAliveWithKey state url url
+
+         {-| Like `keepAlive`, but allows matching a unique key to the connection.
+
+             keeAliveWithKey state key url
+
+         -}
+         keepAliveWithKey : State msg -> String -> String -> ( State msg, Response msg )
+         keepAliveWithKey state key url =
+         let
+         ( State s, response ) =
+         openWithKeyInternal state key url
+         in
+         case Dict.get key s.socketStates of
+         Nothing ->
+         ( State s, response )
+
+                 Just socketState ->
+                     ( State
+                         { s
+                             | socketStates =
+                                 Dict.insert key
+                                     { socketState | keepalive = True }
+                                     s.socketStates
+                         }
+                     , response
+                     )
 -}
+-- MANAGER
+
+
+{-| Get the URL for a key.
+-}
+getKeyUrl : String -> State -> Maybe String
+getKeyUrl key (State state) =
+    case Dict.get key state.socketStates of
+        Just socketState ->
+            Just socketState.url
+
+        Nothing ->
+            Nothing
+
+
+getContinuation : String -> StateRecord -> Maybe ( String, ContinuationKind, StateRecord )
+getContinuation id state =
+    case Dict.get id state.continuations of
+        Nothing ->
+            Nothing
+
+        Just continuation ->
+            Just
+                ( continuation.key
+                , continuation.kind
+                , { state
+                    | continuations = Dict.remove id state.continuations
+                  }
+                )
 
 
 allocateContinuation : String -> ContinuationKind -> StateRecord -> ( String, StateRecord )
@@ -1293,62 +1342,54 @@ allocateContinuation key kind state =
     )
 
 
+processQueuedMessage : StateRecord -> String -> ( State, Response )
+processQueuedMessage state key =
+    let
+        queues =
+            state.queues
+    in
+    case Dict.get key queues of
+        Nothing ->
+            ( State state, NoResponse )
 
-{-
-   processQueuedMessage : StateRecord msg -> String -> ( State msg, Response msg )
-   processQueuedMessage state key =
-   let
-   queues =
-   state.queues
-   in
-   case Dict.get key queues of
-   Nothing ->
-   ( State state, NoResponse )
+        Just [] ->
+            ( State
+                { state
+                    | queues = Dict.remove key queues
+                }
+            , NoResponse
+            )
 
-           Just [] ->
-               ( State
-                   { state
-                       | queues = Dict.remove key queues
-                   }
-               , NoResponse
-               )
+        Just (message :: tail) ->
+            let
+                posend =
+                    POSend
+                        { key = key
+                        , message = message
+                        }
 
-           Just (message :: tail) ->
-               let
-                   (Config { sendPort }) =
-                       state.config
+                ( id, state2 ) =
+                    allocateContinuation key DrainOutputQueue state
 
-                   posend =
-                       POSend
-                           { key = key
-                           , message = message
-                           }
+                podelay =
+                    PODelay
+                        { millis = 20
+                        , id = id
+                        }
 
-                   ( id, state2 ) =
-                       allocateContinuation key DrainOutputQueue state
-
-                   podelay =
-                       PODelay
-                           { millis = 20
-                           , id = id
-                           }
-
-                   cmds =
-                       Cmd.batch <|
-                           List.map
-                               (encodePortMessage >> sendPort)
-                               [ podelay, posend ]
-               in
-               ( State
-                   { state2
-                       | queues =
-                           Dict.insert key tail queues
-                   }
-               , CmdResponse cmds
-               )
-
-
--}
+                response =
+                    ListResponse
+                        [ CmdResponse podelay
+                        , CmdResponse posend
+                        ]
+            in
+            ( State
+                { state2
+                    | queues =
+                        Dict.insert key tail queues
+                }
+            , response
+            )
 
 
 {-| This will usually be `NormalClosure`. The rest are standard, except for `UnknownClosure`, which denotes a code that is not defined, and `TimeoutOutOnReconnect`, which means that exponential backoff connection reestablishment attempts timed out.
@@ -1491,71 +1532,61 @@ backoffMillis backoff =
     10 * (2 ^ backoff)
 
 
+handleUnexpectedClose : StateRecord -> PIClosedRecord -> ( State, Response )
+handleUnexpectedClose state closedRecord =
+    let
+        key =
+            closedRecord.key
 
-{-
+        socketState =
+            getSocketState key state
 
-   handleUnexpectedClose : StateRecord -> PIClosedRecord -> ( State, Response )
-   handleUnexpectedClose state closedRecord =
-       let
-           key =
-               closedRecord.key
+        backoff =
+            1 + socketState.backoff
+    in
+    if
+        (backoff > maxBackoff)
+            || (backoff == 1 && socketState.phase /= ConnectedPhase)
+            || (closedRecord.bytesQueued > 0)
+    then
+        -- It was never successfully opened
+        -- or it was closed with output left unsent.
+        unexpectedClose state
+            { closedRecord
+                | code =
+                    if backoff > maxBackoff then
+                        closedCodeNumber TimedOutOnReconnect
 
-           socketState =
-               getSocketState key state
+                    else
+                        closedRecord.code
+            }
+        -- It WAS successfully opened. Wait for the backoff time, and reopen.
 
-           backoff =
-               1 + socketState.backoff
-       in
-       if
-           (backoff > maxBackoff)
-               || (backoff == 1 && socketState.phase /= ConnectedPhase)
-               || (closedRecord.bytesQueued > 0)
-       then
-           -- It was never successfully opened
-           -- or it was closed with output left unsent.
-           unexpectedClose state
-               { closedRecord
-                   | code =
-                       if backoff > maxBackoff then
-                           closedCodeNumber TimedOutOnReconnect
+    else if socketState.url == "" then
+        -- Shouldn't happen
+        unexpectedClose state closedRecord
 
-                       else
-                           closedRecord.code
-               }
-           -- It WAS successfully opened. Wait for the backoff time, and reopen.
+    else
+        let
+            ( id, state2 ) =
+                allocateContinuation key RetryConnection state
 
-       else if socketState.url == "" then
-           -- Shouldn't happen
-           unexpectedClose state closedRecord
-
-       else
-           let
-               ( id, state2 ) =
-                   allocateContinuation key RetryConnection state
-
-               delay =
-                   PODelay
-                       { millis =
-                           backoffMillis backoff
-                       , id = id
-                       }
-                       |> encodePortMessage
-
-               (Config { sendPort }) =
-                   state2.config
-           in
-           ( State
-               { state2
-                   | socketStates =
-                       Dict.insert key
-                           { socketState | backoff = backoff }
-                           state.socketStates
-               }
-           , CmdResponse <| sendPort delay
-           )
-
-
--}
+            delay =
+                PODelay
+                    { millis =
+                        backoffMillis backoff
+                    , id = id
+                    }
+        in
+        ( State
+            { state2
+                | socketStates =
+                    Dict.insert key
+                        { socketState | backoff = backoff }
+                        state.socketStates
+            }
+        , CmdResponse delay
+        )
 
 
 unexpectedClose : StateRecord -> PIClosedRecord -> ( State, Response )

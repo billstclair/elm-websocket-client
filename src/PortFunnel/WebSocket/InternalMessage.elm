@@ -47,6 +47,10 @@ type InternalMessage
     | POClose { key : String, reason : String }
     | POBytesQueued { key : String }
     | PODelay { millis : Int, id : String }
+      -- loop
+    | PLoopOpen { key : String, url : String }
+    | PLoopSend { key : String, message : String }
+    | PLoopClose { key : String, reason : String }
       -- input
     | PIConnected { key : String, description : String }
     | PIMessageReceived { key : String, message : String }
