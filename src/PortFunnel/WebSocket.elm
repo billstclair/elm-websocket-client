@@ -17,13 +17,13 @@
 
 
 module PortFunnel.WebSocket exposing
-    ( State, Message, Response(..)
+    ( State, Message, Response(..), Error(..)
     , moduleName, moduleDesc, commander
     , initialState
     , makeOpen, makeSend, makeClose
     , makeOpenWithKey, makeKeepAlive, makeKeepAliveWithKey
     , send
-    , toString, toJsonString
+    , toString, toJsonString, errorToString
     , makeSimulatedCmdPort
     , isLoaded, getKeyUrl, willAutoReopen, setAutoReopen
     , encode, decode
@@ -47,7 +47,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Types
 
-@docs State, Message, Response
+@docs State, Message, Response, Error
 
 
 ## Components of a `PortFunnel.FunnelSpec`
@@ -73,7 +73,7 @@ connection once and then keep using. The major benefits of this are:
 
 # Conversion to Strings
 
-@docs toString, toJsonString
+@docs toString, toJsonString, errorToString
 
 
 # Simulator
