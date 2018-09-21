@@ -7,7 +7,7 @@ import Browser
 import Cmd.Extra exposing (addCmd, addCmds, withCmd, withCmds, withNoCmd)
 import Dict exposing (Dict)
 import Html exposing (Html, a, button, div, h1, input, p, span, text)
-import Html.Attributes exposing (disabled, href, size, style, value)
+import Html.Attributes exposing (checked, disabled, href, size, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Encode exposing (Value)
 import PortFunnel exposing (FunnelSpec, GenericMessage, ModuleDesc, StateAccessors)
@@ -57,6 +57,7 @@ type alias Model =
     , log : List String
     , url : String
     , useSimulator : Bool
+    , wasLoaded : Bool
     , funnelState : FunnelState
     , key : String
     , error : Maybe String
@@ -78,6 +79,7 @@ init _ =
     , log = []
     , url = defaultUrl
     , useSimulator = True
+    , wasLoaded = False
     , funnelState = { socket = WebSocket.initialState }
     , key = "socket"
     , error = Nothing
@@ -118,6 +120,8 @@ funnels =
 type Msg
     = UpdateSend String
     | UpdateUrl String
+    | ToggleUseSimulator
+    | ToggleAutoReopen
     | Connect
     | Close
     | Send
@@ -132,6 +136,32 @@ update msg model =
 
         UpdateUrl url ->
             { model | url = url } |> withNoCmd
+
+        ToggleUseSimulator ->
+            { model | useSimulator = not model.useSimulator } |> withNoCmd
+
+        ToggleAutoReopen ->
+            let
+                funnelState =
+                    model.funnelState
+
+                state =
+                    funnelState.socket
+
+                autoReopen =
+                    WebSocket.willAutoReopen model.key state
+            in
+            { model
+                | funnelState =
+                    { funnelState
+                        | socket =
+                            WebSocket.setAutoReopen
+                                model.key
+                                (not autoReopen)
+                                state
+                    }
+            }
+                |> withNoCmd
 
         Connect ->
             { model
@@ -188,10 +218,14 @@ update msg model =
                                     in
                                     if
                                         mdl.useSimulator
+                                            && not model.wasLoaded
                                             && WebSocket.isLoaded
                                                 mdl.funnelState.socket
                                     then
-                                        { mdl | useSimulator = False }
+                                        { mdl
+                                            | useSimulator = False
+                                            , wasLoaded = True
+                                        }
                                             |> withCmd cmd
 
                                     else
@@ -346,6 +380,26 @@ view model =
               else
                 button [ onClick Connect ]
                     [ text "Connect" ]
+            , br
+            , b "use simulator: "
+            , input
+                [ type_ "checkbox"
+                , onClick ToggleUseSimulator
+                , checked model.useSimulator
+                , disabled isConnected
+                ]
+                []
+            , br
+            , b "auto reopen: "
+            , input
+                [ type_ "checkbox"
+                , onClick ToggleAutoReopen
+                , checked <|
+                    WebSocket.willAutoReopen
+                        model.key
+                        model.funnelState.socket
+                ]
+                []
             ]
         , p [] <|
             List.concat
