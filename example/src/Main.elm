@@ -4,51 +4,43 @@ port module Main exposing (main)
 -}
 
 import Browser
+import Cmd.Extra exposing (addCmd, addCmds, withCmd, withCmds, withNoCmd)
+import Dict exposing (Dict)
 import Html exposing (Html, a, button, div, h1, input, p, span, text)
 import Html.Attributes exposing (disabled, href, size, style, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Encode exposing (Value)
-import WebSocketClient
-    exposing
-        ( ClosedCode(..)
-        , Config
-        , Error(..)
-        , PortVersion(..)
-        , Response(..)
-        , State
-        , close
-        , closedCodeToString
-        , errorToString
-        , makeConfig
-        , makeSimulatorConfig
-        , makeState
-        , process
-        )
+import PortFunnel exposing (FunnelSpec, GenericMessage, ModuleDesc, StateAccessors)
+import PortFunnel.WebSocket as WebSocket
 
 
-port webSocketClientCmd : Value -> Cmd msg
+port cmdPort : Value -> Cmd msg
 
 
-port webSocketClientSub : (Value -> msg) -> Sub msg
-
-
-simulatorConfig : Config Msg
-simulatorConfig =
-    makeSimulatorConfig Just
-
-
-main =
-    Browser.element
-        { init = init
-        , update = update
-        , view = view
-        , subscriptions = subscriptions
-        }
+port subPort : (Value -> msg) -> Sub msg
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    webSocketClientSub Receive
+    subPort Process
+
+
+simulatedCmdPort : Value -> Cmd Msg
+simulatedCmdPort =
+    WebSocket.makeSimulatedCmdPort Process
+
+
+getCmdPort : Model -> (Value -> Cmd Msg)
+getCmdPort model =
+    if model.useSimulator then
+        simulatedCmdPort
+
+    else
+        cmdPort
+
+
+type alias FunnelState =
+    { socket : WebSocket.State }
 
 
 
@@ -64,23 +56,59 @@ type alias Model =
     { send : String
     , log : List String
     , url : String
-    , state : State Msg
-    , config : Maybe (Config Msg)
+    , useSimulator : Bool
+    , funnelState : FunnelState
     , key : String
+    , error : Maybe String
     }
+
+
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = subscriptions
+        }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { send = "Hello World!"
-      , log = []
-      , url = defaultUrl
-      , state = makeState simulatorConfig
-      , config = Nothing
-      , key = ""
-      }
-    , Cmd.none
-    )
+    { send = "Hello World!"
+    , log = []
+    , url = defaultUrl
+    , useSimulator = True
+    , funnelState = { socket = WebSocket.initialState }
+    , key = "socket"
+    , error = Nothing
+    }
+        |> withNoCmd
+
+
+socketAccessors : StateAccessors FunnelState WebSocket.State
+socketAccessors =
+    StateAccessors .socket (\substate state -> { state | socket = substate })
+
+
+type alias AppFunnel substate message response =
+    FunnelSpec FunnelState substate message response Model Msg
+
+
+type Funnel
+    = SocketFunnel (AppFunnel WebSocket.State WebSocket.Message WebSocket.Response)
+
+
+funnels : Dict String Funnel
+funnels =
+    Dict.fromList
+        [ ( WebSocket.moduleName
+          , SocketFunnel <|
+                FunnelSpec socketAccessors
+                    WebSocket.moduleDesc
+                    WebSocket.commander
+                    socketHandler
+          )
+        ]
 
 
 
@@ -91,131 +119,153 @@ type Msg
     = UpdateSend String
     | UpdateUrl String
     | Connect
-    | Simulate
     | Close
     | Send
-    | Receive Value
+    | Process Value
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         UpdateSend newsend ->
-            ( { model | send = newsend }, Cmd.none )
+            { model | send = newsend } |> withNoCmd
 
         UpdateUrl url ->
-            ( { model | url = url }, Cmd.none )
+            { model | url = url } |> withNoCmd
 
         Connect ->
-            connect
-                { model
-                    | log =
-                        ("Connecting to " ++ model.url) :: model.log
-                }
-            <|
-                makeConfig webSocketClientCmd
+            { model
+                | log =
+                    (if model.useSimulator then
+                        "Connecting to simulator"
 
-        Simulate ->
-            connect
-                { model
-                    | log =
-                        "Connecting to simulator" :: model.log
-                }
-            <|
-                simulatorConfig
+                     else
+                        "Connecting to " ++ model.url
+                    )
+                        :: model.log
+            }
+                |> withCmd
+                    (WebSocket.makeOpenWithKey model.key model.url
+                        |> send model
+                    )
 
         Send ->
-            processResponse
-                { model
-                    | log =
-                        ("Sending \"" ++ model.send ++ "\"") :: model.log
-                }
-            <|
-                send model.state model.key model.send
-
-        Receive value ->
-            processResponse model <| process model.state value
+            { model
+                | log =
+                    ("Sending \"" ++ model.send ++ "\"") :: model.log
+            }
+                |> withCmd
+                    (WebSocket.makeSend model.key model.send
+                        |> send model
+                    )
 
         Close ->
-            processResponse
-                { model
-                    | config = Nothing
-                    , log = "Closing" :: model.log
-                }
-            <|
-                close model.state model.key
-
-
-{-| Factor the port version out of the `open` function.
--}
-open : State msg -> String -> ( State msg, Response msg )
-open =
-    WebSocketClient.open PortVersion2
-
-
-{-| Factor the port version out of the `send` function.
--}
-send : State msg -> String -> String -> ( State msg, Response msg )
-send =
-    WebSocketClient.send PortVersion2
-
-
-connect : Model -> Config Msg -> ( Model, Cmd Msg )
-connect model config =
-    let
-        m =
             { model
-                | state = makeState config
-                , config = Just config
-                , key = model.url
+                | log = "Closing" :: model.log
+            }
+                |> withCmd
+                    (WebSocket.makeClose model.key
+                        |> send model
+                    )
+
+        Process value ->
+            case PortFunnel.decodeGenericMessage value of
+                Err error ->
+                    { model | error = Just error } |> withNoCmd
+
+                Ok genericMessage ->
+                    let
+                        moduleName =
+                            genericMessage.moduleName
+                    in
+                    case Dict.get moduleName funnels of
+                        Just funnel ->
+                            case funnel of
+                                SocketFunnel appFunnel ->
+                                    let
+                                        ( mdl, cmd ) =
+                                            process genericMessage appFunnel model
+                                    in
+                                    if
+                                        mdl.useSimulator
+                                            && WebSocket.isLoaded
+                                                mdl.funnelState.socket
+                                    then
+                                        { mdl | useSimulator = False }
+                                            |> withCmd cmd
+
+                                    else
+                                        mdl |> withCmd cmd
+
+                        _ ->
+                            { model
+                                | error =
+                                    Just <|
+                                        "Unknown moduleName: "
+                                            ++ moduleName
+                            }
+                                |> withNoCmd
+
+
+process : GenericMessage -> AppFunnel substate message response -> Model -> ( Model, Cmd Msg )
+process genericMessage funnel model =
+    case
+        PortFunnel.appProcess (getCmdPort model)
+            genericMessage
+            funnel
+            model.funnelState
+            model
+    of
+        Err error ->
+            { model | error = Just error } |> withNoCmd
+
+        Ok ( model2, cmd ) ->
+            model2 |> withCmd cmd
+
+
+send : Model -> WebSocket.Message -> Cmd Msg
+send model message =
+    WebSocket.send (getCmdPort model) message
+
+
+socketHandler : WebSocket.Response -> FunnelState -> Model -> ( Model, Cmd Msg )
+socketHandler response state mdl =
+    let
+        model =
+            { mdl
+                | funnelState = state
+                , error = Nothing
             }
     in
-    processResponse m <| open m.state m.url
-
-
-processResponse : Model -> ( State Msg, Response Msg ) -> ( Model, Cmd Msg )
-processResponse model ( state, response ) =
-    let
-        mdl =
-            { model | state = state }
-    in
     case response of
-        NoResponse ->
-            ( mdl, Cmd.none )
+        WebSocket.MessageReceivedResponse { message } ->
+            { model | log = ("Received \"" ++ message ++ "\"") :: model.log }
+                |> withNoCmd
 
-        CmdResponse cmd ->
-            ( mdl, cmd )
+        WebSocket.ConnectedResponse _ ->
+            { model | log = "Connected" :: model.log }
+                |> withNoCmd
 
-        MessageReceivedResponse { message } ->
-            ( { mdl | log = ("Received \"" ++ message ++ "\"") :: mdl.log }
-            , Cmd.none
-            )
-
-        ConnectedResponse { key, description } ->
-            ( { mdl | log = "Connected" :: mdl.log }
-            , Cmd.none
-            )
-
-        ClosedResponse { code, wasClean, expected } ->
-            ( { mdl
-                | config = Nothing
-                , log =
+        WebSocket.ClosedResponse { code, wasClean, expected } ->
+            { model
+                | log =
                     ("Closed, " ++ closedString code wasClean expected)
-                        :: mdl.log
-              }
-            , Cmd.none
-            )
+                        :: model.log
+            }
+                |> withNoCmd
 
-        ErrorResponse error ->
-            ( { mdl | log = errorToString error :: model.log }
-            , Cmd.none
-            )
+        WebSocket.ErrorResponse error ->
+            { model | log = WebSocket.errorToString error :: model.log }
+                |> withNoCmd
+
+        _ ->
+            model |> withNoCmd
 
 
-closedString : ClosedCode -> Bool -> Bool -> String
+closedString : WebSocket.ClosedCode -> Bool -> Bool -> String
 closedString code wasClean expected =
     "code: "
-        ++ closedCodeToString code
+        ++ WebSocket.closedCodeToString code
         ++ ", "
         ++ (if wasClean then
                 "clean"
@@ -255,7 +305,7 @@ view : Model -> Html Msg
 view model =
     let
         isConnected =
-            model.config /= Nothing
+            WebSocket.isConnected model.key model.funnelState.socket
     in
     div
         [ style "width" "40em"
@@ -264,7 +314,7 @@ view model =
         , style "padding" "1em"
         , style "border" "solid"
         ]
-        [ h1 [] [ text "WebSocketClient Example" ]
+        [ h1 [] [ text "PortFunnel.WebSocket Example" ]
         , p []
             [ input
                 [ value model.send
@@ -294,13 +344,8 @@ view model =
                     [ text "Close" ]
 
               else
-                span []
-                    [ button [ onClick Connect ]
-                        [ text "Connect" ]
-                    , text " "
-                    , button [ onClick Simulate ]
-                        [ text "Simulate" ]
-                    ]
+                button [ onClick Connect ]
+                    [ text "Connect" ]
             ]
         , p [] <|
             List.concat
@@ -314,9 +359,6 @@ view model =
             , docp <|
                 "Fill in the 'url' and click 'Connect' to connect to a real server."
                     ++ " This will only work if you've connected the port JavaScript code."
-            , docp <|
-                "Click 'Simulate' to connect to a simulated echo server."
-                    ++ " This will work in 'elm reactor'."
             , docp "Fill in the text and click 'Send' to send a message."
             , docp "Click 'Close' to close the connection."
             ]

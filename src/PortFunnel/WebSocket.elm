@@ -17,15 +17,15 @@
 
 
 module PortFunnel.WebSocket exposing
-    ( State, Message, Response(..), Error(..)
+    ( State, Message, Response(..), Error(..), ClosedCode(..)
     , moduleName, moduleDesc, commander
     , initialState
     , makeOpen, makeSend, makeClose
     , makeOpenWithKey, makeKeepAlive, makeKeepAliveWithKey
     , send
-    , toString, toJsonString, errorToString
+    , toString, toJsonString, errorToString, closedCodeToString
     , makeSimulatedCmdPort
-    , isLoaded, getKeyUrl, willAutoReopen, setAutoReopen
+    , isLoaded, isConnected, getKeyUrl, willAutoReopen, setAutoReopen
     , encode, decode
     )
 
@@ -47,7 +47,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Types
 
-@docs State, Message, Response, Error
+@docs State, Message, Response, Error, ClosedCode
 
 
 ## Components of a `PortFunnel.FunnelSpec`
@@ -73,7 +73,7 @@ connection once and then keep using. The major benefits of this are:
 
 # Conversion to Strings
 
-@docs toString, toJsonString, errorToString
+@docs toString, toJsonString, errorToString, closedCodeToString
 
 
 # Simulator
@@ -83,7 +83,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Non-standard functions
 
-@docs isLoaded, getKeyUrl, willAutoReopen, setAutoReopen
+@docs isLoaded, isConnected, getKeyUrl, willAutoReopen, setAutoReopen
 
 
 ## Internal, exposed only for tests
@@ -176,6 +176,16 @@ This is sent by the port code after it has initialized.
 isLoaded : State -> Bool
 isLoaded (State state) =
     state.isLoaded
+
+
+{-| Returns true if a connection is open for the given key.
+
+    isConnected key state
+
+-}
+isConnected : String -> State -> Bool
+isConnected key (State state) =
+    Dict.get key state.socketStates /= Nothing
 
 
 {-| Return `True` if the connection for the given key will be automatically reopened if it closes unexpectedly.
@@ -881,14 +891,23 @@ simulator mess =
         Startup ->
             Nothing
 
-        PWillOpen { key, url } ->
+        PWillOpen record ->
+            Just <| PWillOpen record
+
+        POOpen { key } ->
             Just <|
                 PIConnected { key = key, description = "Simulated connection." }
 
-        PWillSend { key, message } ->
+        PWillSend record ->
+            Just <| PWillSend record
+
+        POSend { key, message } ->
             Just <| PIMessageReceived { key = key, message = message }
 
-        PWillClose { key, reason } ->
+        PWillClose record ->
+            Just <| PWillClose record
+
+        POClose { key, reason } ->
             Just <|
                 PIClosed
                     { key = key
@@ -1217,7 +1236,7 @@ doClose : StateRecord -> String -> String -> ( State, Response )
 doClose state key reason =
     let
         socketState =
-            getSocketState key state
+            Debug.log "doClose" <| getSocketState key state
     in
     if socketState.phase /= ConnectedPhase then
         ( State

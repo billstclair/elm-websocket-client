@@ -122,10 +122,10 @@
       delete sockets[key];        // for open errors
       sub.send(objectReturn("closed",
                             { key: key,
-                              bytesQueued: "" + socket.bufferedAmount,
-                              code: "" + event.code,
+                              bytesQueued: socket.bufferedAmount,
+                              code: event.code,
                               reason: "" + event.reason,
-                              wasClean: event.wasClean ? "true" : "false"
+                              wasClean: event.wasClean ? true : false
                             }));
     });
     return null;
@@ -153,7 +153,7 @@
 
   function doClose(args) {
     var key = args.key;
-    var reason = args.reason;
+    var reason = args.reason;   // not used
     var socket = sockets[key];
     if (!socket) {
       return socketNotOpenReturn(key, "close");

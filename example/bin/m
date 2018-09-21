@@ -1,0 +1,3 @@
+#!/bin/bash
+
+elm make src/$1.elm --output /dev/null

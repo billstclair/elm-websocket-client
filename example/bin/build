@@ -1,3 +1,3 @@
 #!/bin/bash
 
-elm make --debug src/Main.elm --output site/elm.js
+elm make src/Main.elm --output site/elm.js

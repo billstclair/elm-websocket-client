@@ -24,10 +24,10 @@ main =
         }
 
 
-port webSocketClientCmd : Value -> Cmd msg
+port cmdPort : Value -> Cmd msg
 
 
-port webSocketClientSub : (Value -> msg) -> Sub msg
+port subPort : (Value -> msg) -> Sub msg
 
 
 port parse : String -> Cmd msg
@@ -39,7 +39,7 @@ port parseReturn : (Value -> msg) -> Sub msg
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ webSocketClientSub Receive
+        [ subPort Receive
         , parseReturn Process
         ]
 
@@ -58,7 +58,7 @@ openJson : String
 openJson =
     String.trim
         """
-         {"tag": "open", "args": {"key": "foo", "url": "wss://echo.websocket.org"}}
+         {"module": "WebSocket", "tag": "open", "args": {"key": "foo", "url": "wss://echo.websocket.org"}}
         """
 
 
@@ -66,7 +66,7 @@ sendJson : String
 sendJson =
     String.trim
         """
-       {"tag": "send", "args": {"key": "foo", "message": "Hello, World!"}}
+       {"module": "WebSocket", "tag": "send", "args": {"key": "foo", "message": "Hello, World!"}}
       """
 
 
@@ -74,7 +74,7 @@ closeJson : String
 closeJson =
     String.trim
         """
-         {"tag": "close", "args": {"key": "foo", "reason": "Just because."}}
+         {"module": "WebSocket", "tag": "close", "args": {"key": "foo", "reason": "Just because."}}
         """
 
 
@@ -82,7 +82,7 @@ bytesQueuedJson : String
 bytesQueuedJson =
     String.trim
         """
-         {"tag": "bytesQueued", "args": {"key": "foo"}}
+         {"module": "WebSocket", "tag": "getBytesQueued", "args": {"key": "foo"}}
         """
 
 
@@ -90,7 +90,7 @@ delayJson : String
 delayJson =
     String.trim
         """
-         {"tag": "delay", "args": {"millis": "500", "id": "23"}}
+         {"module": "WebSocket", "tag": "delay", "args": {"millis": "500", "id": "23"}}
         """
 
 
@@ -131,7 +131,7 @@ update msg model =
             { model
                 | log = ("send: " ++ JE.encode 0 value) :: model.log
             }
-                |> withCmd (webSocketClientCmd value)
+                |> withCmd (cmdPort value)
 
         Receive value ->
             let
