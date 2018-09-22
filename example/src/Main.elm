@@ -58,7 +58,7 @@ type alias Model =
     , url : String
     , useSimulator : Bool
     , wasLoaded : Bool
-    , funnelState : FunnelState
+    , state : FunnelState
     , key : String
     , error : Maybe String
     }
@@ -85,7 +85,7 @@ init _ =
     , url = defaultUrl
     , useSimulator = True
     , wasLoaded = False
-    , funnelState = initialFunnelState
+    , state = initialFunnelState
     , key = "socket"
     , error = Nothing
     }
@@ -147,23 +147,23 @@ update msg model =
 
         ToggleAutoReopen ->
             let
-                funnelState =
-                    model.funnelState
-
                 state =
-                    funnelState.socket
+                    model.state
+
+                socketState =
+                    state.socket
 
                 autoReopen =
-                    WebSocket.willAutoReopen model.key state
+                    WebSocket.willAutoReopen model.key socketState
             in
             { model
-                | funnelState =
-                    { funnelState
+                | state =
+                    { state
                         | socket =
                             WebSocket.setAutoReopen
                                 model.key
                                 (not autoReopen)
-                                state
+                                socketState
                     }
             }
                 |> withNoCmd
@@ -204,32 +204,22 @@ update msg model =
                     )
 
         Process value ->
-            case genericProcess funnels processor value model.funnelState model of
+            case
+                PortFunnel.processValue funnels
+                    appTrampoline
+                    value
+                    model.state
+                    model
+            of
                 Err error ->
-                    { model | error = Just error }
-                        |> withNoCmd
+                    { model | error = Just error } |> withNoCmd
 
-                Ok ( funnel, mdl, cmd ) ->
-                    case funnel of
-                        SocketFunnel appFunnel ->
-                            if
-                                mdl.useSimulator
-                                    && not model.wasLoaded
-                                    && WebSocket.isLoaded
-                                        mdl.funnelState.socket
-                            then
-                                { mdl
-                                    | useSimulator = False
-                                    , wasLoaded = True
-                                }
-                                    |> withCmd cmd
-
-                            else
-                                mdl |> withCmd cmd
+                Ok res ->
+                    res
 
 
-processor : GenericMessage -> Funnel -> FunnelState -> Model -> Result String ( Model, Cmd Msg )
-processor genericMessage funnel funnelState model =
+appTrampoline : GenericMessage -> Funnel -> FunnelState -> Model -> Result String ( Model, Cmd Msg )
+appTrampoline genericMessage funnel state model =
     let
         theCmdPort =
             getCmdPort model
@@ -239,46 +229,8 @@ processor genericMessage funnel funnelState model =
             PortFunnel.appProcess theCmdPort
                 genericMessage
                 appFunnel
-                funnelState
+                state
                 model
-
-
-
----
---- Attempt to genericize the processing
----
-
-
-genericProcess : Dict String funnel -> (GenericMessage -> funnel -> state -> model -> Result String ( model, Cmd msg )) -> Value -> state -> model -> Result String ( funnel, model, Cmd msg )
-genericProcess funnelsDict theProcessor value state model =
-    case PortFunnel.decodeGenericMessage value of
-        Err error ->
-            Err error
-
-        Ok genericMessage ->
-            let
-                moduleName =
-                    genericMessage.moduleName
-            in
-            case Dict.get moduleName funnelsDict of
-                Just funnel ->
-                    case
-                        theProcessor genericMessage funnel state model
-                    of
-                        Err error ->
-                            Err error
-
-                        Ok ( model2, cmd ) ->
-                            Ok ( funnel, model2, cmd )
-
-                _ ->
-                    Err <| "Unknown moduleName: " ++ moduleName
-
-
-
----
---- End of genericizing of processing
----
 
 
 send : Model -> WebSocket.Message -> Cmd Msg
@@ -286,14 +238,27 @@ send model message =
     WebSocket.send (getCmdPort model) message
 
 
+doIsLoaded : Model -> Model
+doIsLoaded model =
+    if not model.wasLoaded && WebSocket.isLoaded model.state.socket then
+        { model
+            | useSimulator = False
+            , wasLoaded = True
+        }
+
+    else
+        model
+
+
 socketHandler : WebSocket.Response -> FunnelState -> Model -> ( Model, Cmd Msg )
 socketHandler response state mdl =
     let
         model =
-            { mdl
-                | funnelState = state
-                , error = Nothing
-            }
+            doIsLoaded
+                { mdl
+                    | state = state
+                    , error = Nothing
+                }
     in
     case response of
         WebSocket.MessageReceivedResponse { message } ->
@@ -363,7 +328,7 @@ view : Model -> Html Msg
 view model =
     let
         isConnected =
-            WebSocket.isConnected model.key model.funnelState.socket
+            WebSocket.isConnected model.key model.state.socket
     in
     div
         [ style "width" "40em"
@@ -421,7 +386,7 @@ view model =
                 , checked <|
                     WebSocket.willAutoReopen
                         model.key
-                        model.funnelState.socket
+                        model.state.socket
                 ]
                 []
             ]
@@ -439,6 +404,14 @@ view model =
                     ++ " This will only work if you've connected the port JavaScript code."
             , docp "Fill in the text and click 'Send' to send a message."
             , docp "Click 'Close' to close the connection."
+            , docp <|
+                "If the 'use simulator' checkbox is checked at startup,"
+                    ++ " then you're either runing from 'elm reactor' or"
+                    ++ " the JavaScript code got an error starting."
+            , docp <|
+                "Uncheck the 'auto reopen' checkbox to report when the"
+                    ++ " connection is lost unexpectedly, rather than the deault"
+                    ++ " of attempting to reconnect."
             ]
         , p []
             [ b "Package: "

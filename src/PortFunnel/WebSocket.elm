@@ -681,12 +681,11 @@ process mess ((State state) as unboxed) =
             let
                 socketState =
                     getSocketState key state
+
+                expected =
+                    socketState.phase == ClosingPhase
             in
-            if
-                socketState.phase
-                    /= ClosingPhase
-                    && not (Set.member key state.noAutoReopenKeys)
-            then
+            if not expected && not (Set.member key state.noAutoReopenKeys) then
                 handleUnexpectedClose state closedRecord
 
             else
@@ -700,7 +699,7 @@ process mess ((State state) as unboxed) =
                     , code = closedCode code
                     , reason = reason
                     , wasClean = wasClean
-                    , expected = True
+                    , expected = expected
                     }
                 )
 
