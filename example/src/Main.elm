@@ -73,6 +73,11 @@ main =
         }
 
 
+initialFunnelState : FunnelState
+initialFunnelState =
+    { socket = WebSocket.initialState }
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     { send = "Hello World!"
@@ -80,7 +85,7 @@ init _ =
     , url = defaultUrl
     , useSimulator = True
     , wasLoaded = False
-    , funnelState = { socket = WebSocket.initialState }
+    , funnelState = initialFunnelState
     , key = "socket"
     , error = Nothing
     }
@@ -104,11 +109,11 @@ funnels : Dict String Funnel
 funnels =
     Dict.fromList
         [ ( WebSocket.moduleName
-          , SocketFunnel <|
-                FunnelSpec socketAccessors
-                    WebSocket.moduleDesc
-                    WebSocket.commander
-                    socketHandler
+          , FunnelSpec socketAccessors
+                WebSocket.moduleDesc
+                WebSocket.commander
+                socketHandler
+                |> SocketFunnel
           )
         ]
 
@@ -199,62 +204,81 @@ update msg model =
                     )
 
         Process value ->
-            case PortFunnel.decodeGenericMessage value of
+            case genericProcess funnels processor value model.funnelState model of
                 Err error ->
-                    { model | error = Just error } |> withNoCmd
+                    { model | error = Just error }
+                        |> withNoCmd
 
-                Ok genericMessage ->
-                    let
-                        moduleName =
-                            genericMessage.moduleName
-                    in
-                    case Dict.get moduleName funnels of
-                        Just funnel ->
-                            case funnel of
-                                SocketFunnel appFunnel ->
-                                    let
-                                        ( mdl, cmd ) =
-                                            process genericMessage appFunnel model
-                                    in
-                                    if
-                                        mdl.useSimulator
-                                            && not model.wasLoaded
-                                            && WebSocket.isLoaded
-                                                mdl.funnelState.socket
-                                    then
-                                        { mdl
-                                            | useSimulator = False
-                                            , wasLoaded = True
-                                        }
-                                            |> withCmd cmd
+                Ok ( funnel, mdl, cmd ) ->
+                    case funnel of
+                        SocketFunnel appFunnel ->
+                            if
+                                mdl.useSimulator
+                                    && not model.wasLoaded
+                                    && WebSocket.isLoaded
+                                        mdl.funnelState.socket
+                            then
+                                { mdl
+                                    | useSimulator = False
+                                    , wasLoaded = True
+                                }
+                                    |> withCmd cmd
 
-                                    else
-                                        mdl |> withCmd cmd
-
-                        _ ->
-                            { model
-                                | error =
-                                    Just <|
-                                        "Unknown moduleName: "
-                                            ++ moduleName
-                            }
-                                |> withNoCmd
+                            else
+                                mdl |> withCmd cmd
 
 
-process : GenericMessage -> AppFunnel substate message response -> Model -> ( Model, Cmd Msg )
-process genericMessage funnel model =
-    case
-        PortFunnel.appProcess (getCmdPort model)
-            genericMessage
-            funnel
-            model.funnelState
-            model
-    of
+processor : GenericMessage -> Funnel -> FunnelState -> Model -> Result String ( Model, Cmd Msg )
+processor genericMessage funnel funnelState model =
+    let
+        theCmdPort =
+            getCmdPort model
+    in
+    case funnel of
+        SocketFunnel appFunnel ->
+            PortFunnel.appProcess theCmdPort
+                genericMessage
+                appFunnel
+                funnelState
+                model
+
+
+
+---
+--- Attempt to genericize the processing
+---
+
+
+genericProcess : Dict String funnel -> (GenericMessage -> funnel -> state -> model -> Result String ( model, Cmd msg )) -> Value -> state -> model -> Result String ( funnel, model, Cmd msg )
+genericProcess funnelsDict theProcessor value state model =
+    case PortFunnel.decodeGenericMessage value of
         Err error ->
-            { model | error = Just error } |> withNoCmd
+            Err error
 
-        Ok ( model2, cmd ) ->
-            model2 |> withCmd cmd
+        Ok genericMessage ->
+            let
+                moduleName =
+                    genericMessage.moduleName
+            in
+            case Dict.get moduleName funnelsDict of
+                Just funnel ->
+                    case
+                        theProcessor genericMessage funnel state model
+                    of
+                        Err error ->
+                            Err error
+
+                        Ok ( model2, cmd ) ->
+                            Ok ( funnel, model2, cmd )
+
+                _ ->
+                    Err <| "Unknown moduleName: " ++ moduleName
+
+
+
+---
+--- End of genericizing of processing
+---
 
 
 send : Model -> WebSocket.Message -> Cmd Msg

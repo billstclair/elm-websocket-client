@@ -7,6 +7,7 @@
 elm make src/Main.elm --output site/elm.js
 rsync -av site/ ~/elm/billstclair.github.io/elm-websocket-client/
 cd ~/elm/billstclair.github.io/elm-websocket-client
+git add .
 git commit -am "Update elm-websocket-client example."
 git push
 
