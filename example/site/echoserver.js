@@ -35,6 +35,11 @@ startListening();
 function listen(ws) {
   console.log("connection");
   ws.send('connected');
+  ws.on('error', function() {
+    console.log('got error, closing');
+    wss.close();
+    startListening();
+  });
   ws.on('message', function(message) {
     if (!isPositiveIntegerString(message)) {
       console.log('sending: "' + message + '"');

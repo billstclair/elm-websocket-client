@@ -732,7 +732,7 @@ process mess ((State state) as unboxed) =
                                         | socketStates =
                                             Dict.insert key
                                                 { socketState
-                                                    | phase = IdlePhase
+                                                    | phase = ConnectingPhase
                                                 }
                                                 state.socketStates
                                     }
@@ -1236,7 +1236,7 @@ doClose : StateRecord -> String -> String -> ( State, Response )
 doClose state key reason =
     let
         socketState =
-            Debug.log "doClose" <| getSocketState key state
+            getSocketState key state
     in
     if socketState.phase /= ConnectedPhase then
         ( State
@@ -1591,13 +1591,13 @@ handleUnexpectedClose state closedRecord =
                     else
                         closedRecord.code
             }
-        -- It WAS successfully opened. Wait for the backoff time, and reopen.
 
     else if socketState.url == "" then
         -- Shouldn't happen
         unexpectedClose state closedRecord
 
     else
+        -- It WAS successfully opened. Wait for the backoff time, and reopen.
         let
             ( id, state2 ) =
                 allocateContinuation key RetryConnection state
