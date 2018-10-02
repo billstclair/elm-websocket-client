@@ -10,37 +10,51 @@ import Html exposing (Html, a, button, div, h1, input, p, span, text)
 import Html.Attributes exposing (checked, disabled, href, size, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Encode exposing (Value)
-import PortFunnel exposing (FunnelSpec, GenericMessage, ModuleDesc, StateAccessors)
 import PortFunnel.WebSocket as WebSocket
+import PortFunnels exposing (FunnelDict, Handler(..), State)
 
 
-port cmdPort : Value -> Cmd msg
+
+{- This section contains boilerplate that you'll always need.
+
+   First, copy PortFunnels.elm into your project, and modify it
+   to support all the funnel modules you use.
+
+   Then update the `handlers` list with an entry for each funnel.
+
+   Those handler functions are the meat of your interaction with each
+   funnel module.
+-}
 
 
-port subPort : (Value -> msg) -> Sub msg
+handlers : List (Handler Model Msg)
+handlers =
+    [ WebSocketHandler socketHandler
+    ]
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    subPort Process
+subscriptions =
+    PortFunnels.subscriptions Process
 
 
-simulatedCmdPort : Value -> Cmd Msg
-simulatedCmdPort =
-    WebSocket.makeSimulatedCmdPort Process
+funnelDict : FunnelDict Model Msg
+funnelDict =
+    PortFunnels.makeFunnelDict handlers getCmdPort
 
 
-getCmdPort : Model -> (Value -> Cmd Msg)
-getCmdPort model =
-    if model.useSimulator then
-        simulatedCmdPort
-
-    else
-        cmdPort
+{-| Get a possibly simulated output port.
+-}
+getCmdPort : String -> Model -> (Value -> Cmd Msg)
+getCmdPort moduleName model =
+    PortFunnels.getCmdPort Process moduleName model.useSimulator
 
 
-type alias FunnelState =
-    { socket : WebSocket.State }
+{-| The real output port.
+-}
+cmdPort : Value -> Cmd Msg
+cmdPort =
+    PortFunnels.getCmdPort Process "" False
 
 
 
@@ -58,7 +72,7 @@ type alias Model =
     , url : String
     , useSimulator : Bool
     , wasLoaded : Bool
-    , state : FunnelState
+    , state : State
     , key : String
     , error : Maybe String
     }
@@ -73,11 +87,6 @@ main =
         }
 
 
-initialFunnelState : FunnelState
-initialFunnelState =
-    { socket = WebSocket.initialState }
-
-
 init : () -> ( Model, Cmd Msg )
 init _ =
     { send = "Hello World!"
@@ -85,37 +94,11 @@ init _ =
     , url = defaultUrl
     , useSimulator = True
     , wasLoaded = False
-    , state = initialFunnelState
+    , state = PortFunnels.initialState
     , key = "socket"
     , error = Nothing
     }
         |> withNoCmd
-
-
-socketAccessors : StateAccessors FunnelState WebSocket.State
-socketAccessors =
-    StateAccessors .socket (\substate state -> { state | socket = substate })
-
-
-type alias AppFunnel substate message response =
-    FunnelSpec FunnelState substate message response Model Msg
-
-
-type Funnel
-    = SocketFunnel (AppFunnel WebSocket.State WebSocket.Message WebSocket.Response)
-
-
-funnels : Dict String Funnel
-funnels =
-    Dict.fromList
-        [ ( WebSocket.moduleName
-          , FunnelSpec socketAccessors
-                WebSocket.moduleDesc
-                WebSocket.commander
-                socketHandler
-                |> SocketFunnel
-          )
-        ]
 
 
 
@@ -151,7 +134,7 @@ update msg model =
                     model.state
 
                 socketState =
-                    state.socket
+                    state.websocket
 
                 autoReopen =
                     WebSocket.willAutoReopen model.key socketState
@@ -159,7 +142,7 @@ update msg model =
             { model
                 | state =
                     { state
-                        | socket =
+                        | websocket =
                             WebSocket.setAutoReopen
                                 model.key
                                 (not autoReopen)
@@ -205,11 +188,7 @@ update msg model =
 
         Process value ->
             case
-                PortFunnel.processValue funnels
-                    appTrampoline
-                    value
-                    model.state
-                    model
+                PortFunnels.processValue funnelDict value model.state model
             of
                 Err error ->
                     { model | error = Just error } |> withNoCmd
@@ -218,29 +197,14 @@ update msg model =
                     res
 
 
-appTrampoline : GenericMessage -> Funnel -> FunnelState -> Model -> Result String ( Model, Cmd Msg )
-appTrampoline genericMessage funnel state model =
-    let
-        theCmdPort =
-            getCmdPort model
-    in
-    case funnel of
-        SocketFunnel appFunnel ->
-            PortFunnel.appProcess theCmdPort
-                genericMessage
-                appFunnel
-                state
-                model
-
-
 send : Model -> WebSocket.Message -> Cmd Msg
 send model message =
-    WebSocket.send (getCmdPort model) message
+    WebSocket.send (getCmdPort WebSocket.moduleName model) message
 
 
 doIsLoaded : Model -> Model
 doIsLoaded model =
-    if not model.wasLoaded && WebSocket.isLoaded model.state.socket then
+    if not model.wasLoaded && WebSocket.isLoaded model.state.websocket then
         { model
             | useSimulator = False
             , wasLoaded = True
@@ -250,7 +214,7 @@ doIsLoaded model =
         model
 
 
-socketHandler : WebSocket.Response -> FunnelState -> Model -> ( Model, Cmd Msg )
+socketHandler : WebSocket.Response -> State -> Model -> ( Model, Cmd Msg )
 socketHandler response state mdl =
     let
         model =
@@ -328,7 +292,7 @@ view : Model -> Html Msg
 view model =
     let
         isConnected =
-            WebSocket.isConnected model.key model.state.socket
+            WebSocket.isConnected model.key model.state.websocket
     in
     div
         [ style "width" "40em"
@@ -386,7 +350,7 @@ view model =
                 , checked <|
                     WebSocket.willAutoReopen
                         model.key
-                        model.state.socket
+                        model.state.websocket
                 ]
                 []
             ]
