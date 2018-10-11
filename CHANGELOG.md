@@ -1,5 +1,21 @@
 # Changelog for billstclair/elm-websocket-client
 
+## 3.0.2, 10/11/2018
+
+* Make the JavaScript code work with WebPack (issue #3).
+
+* Fix documentation issues, #1 & #2.
+
+## 3.0.1, 10/1/2018
+
+* Update example to use `PortFunnels.elm` for all the baroque dispatching.
+
+## 3.0.0, 9/22/2018
+
+* Join the [billstclair/elm-port-funnel](https://package.elm-lang.org/packages/billstclair/elm-port-funnel/latest) ecosystem.
+
+* `setAutoReopen` and `willAutoReopen` to control automatic reconnection on unexpected connection loss.
+
 ## 2.0.2, 9/4/2018
 
 * Remove README paragraph about no automatic reconnect. It was there in 2.0.0.

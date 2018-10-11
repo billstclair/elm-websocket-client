@@ -228,7 +228,7 @@ setAutoReopen key autoReopen (State state) =
 
 `NoResponse` means there's nothing to do.
 
-`CmdResponse` is a `Cmd` that you must return from your `update` function. It will send something out the `sendPort` in your `Config`.
+`CmdResponse` encapsulates a `Message` that needs to be sent out through your `Cmd` port. This is done internally. Your application code may ignore these responses.
 
 `ConnectedReponse` tells you that an earlier call to `send` or `keepAlive` has successfully connected. You can usually ignore this.
 

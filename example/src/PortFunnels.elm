@@ -21,7 +21,12 @@ port module PortFunnels exposing
     , subscriptions
     )
 
-{-| A copy of the PortFunnels.elm example module, modified `PortFunnel.WebSocket`.
+{-| A copy of the PortFunnels.elm example module, modified for `PortFunnel.WebSocket`.
+
+You will usually copy this file into your application's source directory, and, if you use other `PortFunnel` modules, modify it to support all of them.
+
+Note that this is a `port module`, and it defines the two ports that are used by `site/index.html`, `cmdPort` and `subPort`.
+
 -}
 
 import Dict exposing (Dict)
