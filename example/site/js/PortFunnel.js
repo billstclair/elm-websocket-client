@@ -37,9 +37,10 @@
 //
 //////////////////////////////////////////////////////////////////////
 
-var PortFunnel = {};
+(function(scope) {
 
-(function() {
+PortFunnel = {};
+scope.PortFunnel = PortFunnel;
 
 PortFunnel.subscribe = subscribe; // called by HTML file
 PortFunnel.modules = {};          // modules[funnelName].cmd set by module JS.
@@ -159,4 +160,4 @@ function drainQueue() {
   }
 }
 
-})()
+}(this))
