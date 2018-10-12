@@ -1,5 +1,11 @@
 # Changelog for billstclair/elm-websocket-client
 
+## 4.0.0, 10/12/2018
+
+Add `ReconnectedResponse` and return it when the connection is re-established after being lost.
+
+Add `reconnectedResponses` (and `filterResponses` and `isReconnectedResponse`) to aid in filtering a `ListResponse`, which may contain a `ReconnectedResponse`.
+
 ## 3.0.2, 10/11/2018
 
 * Make the JavaScript code work with WebPack (issue #3).
