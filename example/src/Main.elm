@@ -10,7 +10,7 @@ import Html exposing (Html, a, button, div, h1, input, p, span, text)
 import Html.Attributes exposing (checked, disabled, href, size, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Encode exposing (Value)
-import PortFunnel.WebSocket as WebSocket
+import PortFunnel.WebSocket as WebSocket exposing (Response(..))
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 
 
@@ -214,7 +214,7 @@ doIsLoaded model =
         model
 
 
-socketHandler : WebSocket.Response -> State -> Model -> ( Model, Cmd Msg )
+socketHandler : Response -> State -> Model -> ( Model, Cmd Msg )
 socketHandler response state mdl =
     let
         model =
@@ -229,8 +229,8 @@ socketHandler response state mdl =
             { model | log = ("Received \"" ++ message ++ "\"") :: model.log }
                 |> withNoCmd
 
-        WebSocket.ConnectedResponse _ ->
-            { model | log = "Connected" :: model.log }
+        WebSocket.ConnectedResponse r ->
+            { model | log = ("Connected: " ++ r.description) :: model.log }
                 |> withNoCmd
 
         WebSocket.ClosedResponse { code, wasClean, expected } ->
@@ -246,7 +246,17 @@ socketHandler response state mdl =
                 |> withNoCmd
 
         _ ->
-            model |> withNoCmd
+            case WebSocket.reconnectedResponses response of
+                [] ->
+                    model |> withNoCmd
+
+                [ ReconnectedResponse r ] ->
+                    { model | log = ("Reconnected: " ++ r.description) :: model.log }
+                        |> withNoCmd
+
+                list ->
+                    { model | log = Debug.toString list :: model.log }
+                        |> withNoCmd
 
 
 closedString : WebSocket.ClosedCode -> Bool -> Bool -> String

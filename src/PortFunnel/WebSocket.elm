@@ -26,6 +26,7 @@ module PortFunnel.WebSocket exposing
     , toString, toJsonString, errorToString, closedCodeToString
     , makeSimulatedCmdPort
     , isLoaded, isConnected, getKeyUrl, willAutoReopen, setAutoReopen
+    , filterResponses, isReconnectedResponse, reconnectedResponses
     , encode, decode
     )
 
@@ -84,6 +85,7 @@ connection once and then keep using. The major benefits of this are:
 ## Non-standard functions
 
 @docs isLoaded, isConnected, getKeyUrl, willAutoReopen, setAutoReopen
+@docs filterResponses, isReconnectedResponse, reconnectedResponses
 
 
 ## Internal, exposed only for tests
@@ -230,7 +232,11 @@ setAutoReopen key autoReopen (State state) =
 
 `CmdResponse` encapsulates a `Message` that needs to be sent out through your `Cmd` port. This is done internally. Your application code may ignore these responses.
 
-`ConnectedReponse` tells you that an earlier call to `send` or `keepAlive` has successfully connected. You can usually ignore this.
+`ListResponse` contains a number of responses. It is generated only when you send messages while the connection is down, causing them to be queued up. It may contain one or more `ReconnectedResponse` instances, so if you care about that, you should call `reconnectedResponses` to extract them.
+
+`ConnectedResponse` tells you that an earlier call to `send` or `keepAlive` has successfully connected. You can usually ignore this.
+
+`ReconnectedResponse` is sent when the connection to the server has been re-established after being lost. If you need to re-establish logical connections after losing the physical connection, you'll need to pay attention to this. Otherwise, you can safely ignore it.
 
 `MessageReceivedResponse` is a message from one of the connected sockets.
 
@@ -244,6 +250,7 @@ type Response
     | CmdResponse Message
     | ListResponse (List Response)
     | ConnectedResponse { key : String, description : String }
+    | ReconnectedResponse { key : String, description : String }
     | MessageReceivedResponse { key : String, message : String }
     | ClosedResponse
         { key : String
@@ -654,7 +661,11 @@ process mess ((State state) as unboxed) =
                     )
 
                 else
-                    processQueuedMessage newState key
+                    processQueuedMessage newState
+                        key
+                    <|
+                        ReconnectedResponse
+                            { key = key, description = description }
 
         PIMessageReceived { key, message } ->
             let
@@ -715,7 +726,7 @@ process mess ((State state) as unboxed) =
                 Just ( key, kind, state2 ) ->
                     case kind of
                         DrainOutputQueue ->
-                            processQueuedMessage state2 key
+                            processQueuedMessage state2 key NoResponse
 
                         RetryConnection ->
                             let
@@ -1372,22 +1383,22 @@ allocateContinuation key kind state =
     )
 
 
-processQueuedMessage : StateRecord -> String -> ( State, Response )
-processQueuedMessage state key =
+processQueuedMessage : StateRecord -> String -> Response -> ( State, Response )
+processQueuedMessage state key reconnectedResponse =
     let
         queues =
             state.queues
     in
     case Dict.get key queues of
         Nothing ->
-            ( State state, NoResponse )
+            ( State state, reconnectedResponse )
 
         Just [] ->
             ( State
                 { state
                     | queues = Dict.remove key queues
                 }
-            , NoResponse
+            , reconnectedResponse
             )
 
         Just (message :: tail) ->
@@ -1408,10 +1419,18 @@ processQueuedMessage state key =
                         }
 
                 response =
-                    ListResponse
-                        [ CmdResponse podelay
-                        , CmdResponse posend
-                        ]
+                    ListResponse <|
+                        List.concat
+                            [ case reconnectedResponse of
+                                NoResponse ->
+                                    []
+
+                                _ ->
+                                    [ reconnectedResponse ]
+                            , [ CmdResponse podelay
+                              , CmdResponse posend
+                              ]
+                            ]
             in
             ( State
                 { state2
@@ -1420,6 +1439,64 @@ processQueuedMessage state key =
                 }
             , response
             )
+
+
+{-| Filter the `Response` arg with the predicate arg.
+
+If the `Response` is a `ListResponse`, then return the elements of its
+encapsulated list which satisfy the predicate.
+
+If the `Response` itself satisfies the predicate, return it in a single-element list.
+
+Otherwise, return the empty list.
+
+-}
+filterResponses : (Response -> Bool) -> Response -> List Response
+filterResponses predicate response =
+    case response of
+        ListResponse list ->
+            List.filter predicate list
+
+        _ ->
+            if predicate response then
+                [ response ]
+
+            else
+                []
+
+
+{-| Return `True` iff the `Response` is a `ReconnectedResponse`.
+-}
+isReconnectedResponse : Response -> Bool
+isReconnectedResponse response =
+    case response of
+        ReconnectedResponse _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| Return a list of the `ReconnectedResponse` instances in the `Response`.
+
+    reconnectedResponses response
+
+is equivalent to:
+
+    filterResponse isReconnectedResponse response
+
+-}
+reconnectedResponses : Response -> List Response
+reconnectedResponses response =
+    case response of
+        ReconnectedResponse _ ->
+            [ response ]
+
+        ListResponse list ->
+            List.filter isReconnectedResponse list
+
+        _ ->
+            []
 
 
 {-| This will usually be `NormalClosure`. The rest are standard, except for `UnknownClosure`, which denotes a code that is not defined, and `TimeoutOutOnReconnect`, which means that exponential backoff connection reestablishment attempts timed out.
