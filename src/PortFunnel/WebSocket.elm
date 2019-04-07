@@ -17,7 +17,7 @@
 
 
 module PortFunnel.WebSocket exposing
-    ( State, Message, Response(..), Error(..), ClosedCode(..)
+    ( State, Message, Response(..), Error(..), ClosedCode(..), JSVersion
     , moduleName, moduleDesc, commander
     , initialState
     , makeOpen, makeSend, makeClose
@@ -48,7 +48,7 @@ connection once and then keep using. The major benefits of this are:
 
 ## Types
 
-@docs State, Message, Response, Error, ClosedCode
+@docs State, Message, Response, Error, ClosedCode, JSVersion
 
 
 ## Components of a `PortFunnel.FunnelSpec`
@@ -1710,3 +1710,12 @@ unexpectedClose state { key, code, reason, wasClean } =
         , expected = False
         }
     )
+
+
+{-| This is used to force a major version bump when the JS changes.
+
+You'll usually not use it for anything.
+
+-}
+type alias JSVersion =
+    { v4_1 : () }

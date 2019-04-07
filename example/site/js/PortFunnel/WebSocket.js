@@ -19,17 +19,29 @@
 // https://github.com/billstclair/elm-port-funnel/blob/master/DEVELOPERS-GUIDE.md
 //
 
-(function() {
+(function(scope) {
   var moduleName = 'WebSocket';
-  var sub = PortFunnel.sub;
 
-  PortFunnel.modules[moduleName].cmd = dispatcher;
+  var sub;
 
-  // Let the Elm code know we've started
-  sub.send({ module: moduleName,
-             tag: "startup",
-             args : null
-           });
+  function init() {
+    var PortFunnel = scope.PortFunnel;
+    if (!PortFunnel || !PortFunnel.sub || !PortFunnel.modules) {
+      // Loop until PortFunnel.js has initialized itself.
+      setTimeout(init, 10);
+      return;
+    }
+
+    sub = PortFunnel.sub;
+    PortFunnel.modules[moduleName] = { cmd: dispatcher }
+
+    // Let the Elm code know we've started
+    sub.send({ module: moduleName,
+               tag: "startup",
+               args : null
+             });
+  }
+  init();
 
   var tagTable =
       { open: doOpen,
@@ -190,4 +202,4 @@
     setTimeout(callback, millis);
   } 
 
-})();
+})(this);

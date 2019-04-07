@@ -17,6 +17,7 @@
       -->
     <script type='text/javascript' src='elm.js'></script>
     <script type='text/javascript' src='js/PortFunnel.js'></script>
+    <script type='text/javascript' src='js/PortFunnel/WebSocket.js'></script>
   </head>
   <body>
     <div id='elm'></div>
@@ -35,18 +36,14 @@ var app = Elm[mainModule].init({
   flags: flags
 });
 
-// These are the defaults, so you don't need to pass them.
-// If you need to use something different, they can be passed
-// as the 'portNames' and 'moduleDirectory' properties of
-// the second parameter to PortFunnel.subscribe() below.
-//var portNames = ['cmdPort', 'subPort'];
-//var moduleDirectory = 'js/PortFunnel';
+// These are the defaults, so you don't need to pass them.  If you
+// need to use different port names, you can pass them as the
+// 'portNames' property of the second parameter to
+// PortFunnel.subscribe() below:
+// var portNames = ['cmdPort', 'subPort'];
+// PortFunnel.subscribe(app, { portNames: portNames });
 
-// PortFunnel.subscribe will load js/PortFunnel/<module>.js,
-// for each module in this list.
-var modules = ['WebSocket'];
-
-PortFunnel.subscribe(app, {modules: modules});
+PortFunnel.subscribe(app);
 
 // This is used by example/src/simple.elm to parse a JSON string.
 // You can safely remove it from your shipped code, unless you need

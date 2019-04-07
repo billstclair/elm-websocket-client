@@ -2,7 +2,7 @@
 //
 // PortFunnel.js
 // JavaScript runtime code for billstclair/elm-port-funnel
-// Copyright (c) 2018 Bill St. Clair <billstclair@gmail.com>
+// Copyright (c) 2018-2019 Bill St. Clair <billstclair@gmail.com>
 // Some rights reserved.
 // Distributed under the MIT License
 // See LICENSE
@@ -13,27 +13,21 @@
 // It is an object with a `subscribe` property, a function, called as:
 //
 //   PortFunnel.subscribe
-//     (app, {portnames: ['cmdPort', 'subPort'],
-//            modules: ['Module1', ...],
-//            moduleDirectory: 'js/PortFunnel'
+//     (app, {portnames: ['cmdPort', 'subPort']
 //           });
 //
-// The `ports` property is optional. If included, its value should be a
-// two-element array containing the name of the `Cmd` and `Sub` ports in
-// `app`. They default as specified above.
+// The `portnames` property is optional. If included, its value should
+// be a two-element array containing the name of the `Cmd` and `Sub`
+// ports in `app`. They default as specified above.
 //
 // The `modules` property is a list of strings, each of which should
-// correspond to a JavaScript file, which implements the JS side
-// of a PortFunnel-aware Elm module.
+// correspond to the 'moduleName' set by one of your PortFunnel-aware
+// JavaScript files.
 //
-// The `moduleDirectory` property is a string, giving the path to the
-// directory containing all the module JavaScript files. It is optional,
-// and defaults to 'js/PortFunnel'.
-//
-// When each `module` JavaScript file is loaded.
-// It should set `PortFunnel.modules['moduleName']`, as illustrated in
-// `ExampleModule.js`,so that it can be hooked in to the funnelling
-//  mechanism below.
+// When each `module` JavaScript file is loaded.  It should set
+// `PortFunnel.modules['moduleName']`, as illustrated in
+// `PortFunnel/WebSocket.js`,so that it can be hooked in to the
+// funnelling mechanism below.
 //
 //////////////////////////////////////////////////////////////////////
 
@@ -53,11 +47,6 @@ function subscribe(app, args) {
     portNames = ['cmdPort', 'subPort'];
   }
 
-  var moduleDirectory = args.moduleDirectory;
-  if (!moduleDirectory) {
-    moduleDirectory = 'js/PortFunnel';
-  }
-
   var ports = app.ports;
   var sub = ports[portNames[1]];
   PortFunnel.sub = sub;
@@ -69,27 +58,6 @@ function subscribe(app, args) {
       sub.send(returnValue);
     }
   });  
-
-  var modules = args.modules;
-  if (modules) {
-    for (var i in modules) {
-      loadModule(modules[i], moduleDirectory);
-    }
-  }
-}
-
-// Load moduleDirectory+'/'+moduleName+'.js'
-// Expect it to set PortFunnel.modules[moduleName].cmd to
-// a function of two args, tag and args.
-function loadModule(moduleName, moduleDirectory) {
-  PortFunnel.modules[moduleName] = {};
-
-  var src = moduleDirectory + '/' + moduleName + '.js';
-  var script = document.createElement('script');
-  script.type = 'text/javascript';
-  script.src = src;
-
-  document.head.appendChild(script);
 }
 
 // command is of the form:
